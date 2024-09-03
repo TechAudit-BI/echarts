@@ -26,6 +26,7 @@ import PieSeriesModel from './PieSeries';
 import { SectorShape } from 'zrender/src/graphic/shape/Sector';
 import { normalizeArcAngles } from 'zrender/src/core/PathProxy';
 import { makeInner } from '../../util/model';
+import { checkPieIsHalf } from './utils/checkPieIsHalf';
 
 const PI2 = Math.PI * 2;
 const RADIAN = Math.PI / 180;
@@ -33,9 +34,9 @@ const RADIAN = Math.PI / 180;
 function getViewRect(seriesModel: PieSeriesModel, api: ExtensionAPI) {
     return layout.getLayoutRect(
         seriesModel.getBoxLayoutParams(), {
-            width: api.getWidth(),
-            height: api.getHeight()
-        }
+        width: api.getWidth(),
+        height: api.getHeight()
+    }
     );
 }
 
@@ -108,7 +109,7 @@ export default function pieLayout(
             !isNaN(value) && validDataCount++;
         });
 
-        const sum = data.getSum(valueDim);
+        const sum = data.getSum(valueDim, checkPieIsHalf(data));
         // Sum may be 0
         let unitRadian = Math.PI / (sum || validDataCount) * 2;
 
