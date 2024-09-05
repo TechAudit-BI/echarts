@@ -25,6 +25,7 @@ import ExtensionAPI from '../../core/ExtensionAPI';
 import PieSeriesModel from './PieSeries';
 import { SectorShape } from 'zrender/src/graphic/shape/Sector';
 import { normalizeArcAngles } from 'zrender/src/core/PathProxy';
+import { makeInner } from '../../util/model';
 
 const PI2 = Math.PI * 2;
 const RADIAN = Math.PI / 180;
@@ -127,6 +128,11 @@ export default function pieLayout(
 
         [startAngle, endAngle] = angles;
 
+        const layoutData = getSeriesLayoutData(seriesModel);
+        layoutData.startAngle = startAngle;
+        layoutData.endAngle = endAngle;
+        layoutData.clockwise = clockwise;
+
         const angleRange = Math.abs(endAngle - startAngle);
 
         // In the case some sector angle is smaller than minAngle
@@ -220,8 +226,8 @@ export default function pieLayout(
                         let actualEndAngle = 0;
 
                         if (angle < padAngle) {
-                            actualStartAngle = startAngle + dir * (idx + 1 / 2) * angle;
-                            actualEndAngle = actualStartAngle;
+                            actualStartAngle = startAngle + dir * idx * angle + halfPadAngle;
+                            actualEndAngle = startAngle + dir * (idx + 1) * angle - halfPadAngle;
                         }
                         else {
                             actualStartAngle = startAngle + dir * idx * angle + halfPadAngle;
@@ -263,3 +269,9 @@ export default function pieLayout(
         }
     });
 }
+
+export const getSeriesLayoutData = makeInner<{
+    startAngle: number
+    endAngle: number
+    clockwise: boolean
+}, PieSeriesModel>();
