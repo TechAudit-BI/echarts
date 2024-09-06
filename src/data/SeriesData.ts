@@ -795,8 +795,8 @@ class SeriesData<
         return this._store.getDataExtent(this._getStoreDimIndex(dim));
     }
 
-    getSum(dim: DimensionLoose, isHalfPie?: boolean): number {
-        return this._store.getSum(this._getStoreDimIndex(dim), isHalfPie);
+    getSum(dim: DimensionLoose): number {
+        return this._store.getSum(this._getStoreDimIndex(dim));
     }
 
     getMedian(dim: DimensionLoose): number {

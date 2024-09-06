@@ -490,16 +490,13 @@ class DataStore {
     /**
      * Get sum of data in one dimension
      */
-    getSum(dim: DimensionIndex, isHalfPie?: boolean): number {
+    getSum(dim: DimensionIndex): number {
         const dimData = this._chunks[dim];
         let sum = 0;
         if (dimData) {
             for (let i = 0, len = this.count(); i < len; i++) {
                 const value = this.get(dim, i) as number;
-                if (i === len - 1 && isHalfPie) {
-                    sum *= 2;
-                }
- else if (!isNaN(value)) {
+                if (!isNaN(value)) {
                     sum += value;
                 }
             }
