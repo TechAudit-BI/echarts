@@ -21535,7 +21535,7 @@
        */
 
 
-      DataStore.prototype.getSum = function (dim, isHalfPie) {
+      DataStore.prototype.getSum = function (dim) {
         var dimData = this._chunks[dim];
         var sum = 0;
 
@@ -21543,9 +21543,7 @@
           for (var i = 0, len = this.count(); i < len; i++) {
             var value = this.get(dim, i);
 
-            if (i === len - 1 && isHalfPie) {
-              sum *= 2;
-            } else if (!isNaN(value)) {
+            if (!isNaN(value)) {
               sum += value;
             }
           }
@@ -30630,8 +30628,8 @@
         return this._store.getDataExtent(this._getStoreDimIndex(dim));
       };
 
-      SeriesData.prototype.getSum = function (dim, isHalfPie) {
-        return this._store.getSum(this._getStoreDimIndex(dim), isHalfPie);
+      SeriesData.prototype.getSum = function (dim) {
+        return this._store.getSum(this._getStoreDimIndex(dim));
       };
 
       SeriesData.prototype.getMedian = function (dim) {
@@ -35872,10 +35870,6 @@
 
               if (stateObj) {
                 stateObj.ignore = true;
-              }
-
-              if (!!labelLine) {
-                setLabelLineState(labelLine, true, stateName, stateModel);
               }
 
               continue;
@@ -41430,11 +41424,7 @@
             r0 = _a.r0;
 
         var startAngle = -seriesModel.get('startAngle') * RADIAN;
-        var endAngle = seriesModel.get('endAngle');
-        var padAngle = seriesModel.get('padAngle') * RADIAN;
-        endAngle = endAngle === 'auto' ? startAngle - PI2$6 : -endAngle * RADIAN;
         var minAngle = seriesModel.get('minAngle') * RADIAN;
-        var minAndPadAngle = minAngle + padAngle;
         var validDataCount = 0;
         data.each(valueDim, function (value) {
           !isNaN(value) && validDataCount++;
@@ -41447,21 +41437,12 @@
         var stillShowZeroSum = seriesModel.get('stillShowZeroSum'); // [0...max]
 
         var extent = data.getDataExtent(valueDim);
-        extent[0] = 0;
-        var dir = clockwise ? 1 : -1;
-        var angles = [startAngle, endAngle];
-        var halfPadAngle = dir * padAngle / 2;
-        normalizeArcAngles(angles, !clockwise);
-        startAngle = angles[0], endAngle = angles[1];
-        var layoutData = getSeriesLayoutData(seriesModel);
-        layoutData.startAngle = startAngle;
-        layoutData.endAngle = endAngle;
-        layoutData.clockwise = clockwise;
-        var angleRange = Math.abs(endAngle - startAngle); // In the case some sector angle is smaller than minAngle
+        extent[0] = 0; // In the case some sector angle is smaller than minAngle
 
-        var restAngle = angleRange;
+        var restAngle = PI2$6;
         var valueSumLargerThanMinAngle = 0;
         var currentAngle = startAngle;
+        var dir = clockwise ? 1 : -1;
         data.setLayout({
           viewRect: viewRect,
           r: r
@@ -41487,33 +41468,21 @@
           if (roseType !== 'area') {
             angle = sum === 0 && stillShowZeroSum ? unitRadian : value * unitRadian;
           } else {
-            angle = angleRange / validDataCount;
+            angle = PI2$6 / validDataCount;
           }
 
-          if (angle < minAndPadAngle) {
-            angle = minAndPadAngle;
-            restAngle -= minAndPadAngle;
+          if (angle < minAngle) {
+            angle = minAngle;
+            restAngle -= minAngle;
           } else {
             valueSumLargerThanMinAngle += value;
           }
 
-          var endAngle = currentAngle + dir * angle; // calculate display angle
-
-          var actualStartAngle = 0;
-          var actualEndAngle = 0;
-
-          if (padAngle > angle) {
-            actualStartAngle = currentAngle + dir * angle / 2;
-            actualEndAngle = actualStartAngle;
-          } else {
-            actualStartAngle = currentAngle + halfPadAngle;
-            actualEndAngle = endAngle - halfPadAngle;
-          }
-
+          var endAngle = currentAngle + dir * angle;
           data.setItemLayout(idx, {
             angle: angle,
-            startAngle: actualStartAngle,
-            endAngle: actualEndAngle,
+            startAngle: currentAngle,
+            endAngle: endAngle,
             clockwise: clockwise,
             cx: cx,
             cy: cy,
@@ -41521,31 +41490,20 @@
             r: roseType ? linearMap(value, extent, [r0, r]) : r
           });
           currentAngle = endAngle;
-        }); // Some sector is constrained by minAngle and padAngle
+        }); // Some sector is constrained by minAngle
         // Rest sectors needs recalculate angle
 
         if (restAngle < PI2$6 && validDataCount) {
           // Average the angle if rest angle is not enough after all angles is
           // Constrained by minAngle
           if (restAngle <= 1e-3) {
-            var angle_1 = angleRange / validDataCount;
+            var angle_1 = PI2$6 / validDataCount;
             data.each(valueDim, function (value, idx) {
               if (!isNaN(value)) {
                 var layout_1 = data.getItemLayout(idx);
                 layout_1.angle = angle_1;
-                var actualStartAngle = 0;
-                var actualEndAngle = 0;
-
-                if (angle_1 < padAngle) {
-                  actualStartAngle = startAngle + dir * idx * angle_1 + halfPadAngle;
-                  actualEndAngle = startAngle + dir * (idx + 1) * angle_1 - halfPadAngle;
-                } else {
-                  actualStartAngle = startAngle + dir * idx * angle_1 + halfPadAngle;
-                  actualEndAngle = startAngle + dir * (idx + 1) * angle_1 - halfPadAngle;
-                }
-
-                layout_1.startAngle = actualStartAngle;
-                layout_1.endAngle = actualEndAngle;
+                layout_1.startAngle = startAngle + dir * idx * angle_1;
+                layout_1.endAngle = startAngle + dir * (idx + 1) * angle_1;
               }
             });
           } else {
@@ -41554,20 +41512,9 @@
             data.each(valueDim, function (value, idx) {
               if (!isNaN(value)) {
                 var layout_2 = data.getItemLayout(idx);
-                var angle = layout_2.angle === minAndPadAngle ? minAndPadAngle : value * unitRadian;
-                var actualStartAngle = 0;
-                var actualEndAngle = 0;
-
-                if (angle < padAngle) {
-                  actualStartAngle = currentAngle + dir * angle / 2;
-                  actualEndAngle = actualStartAngle;
-                } else {
-                  actualStartAngle = currentAngle + halfPadAngle;
-                  actualEndAngle = currentAngle + dir * angle - halfPadAngle;
-                }
-
-                layout_2.startAngle = actualStartAngle;
-                layout_2.endAngle = actualEndAngle;
+                var angle = layout_2.angle === minAngle ? minAngle : value * unitRadian;
+                layout_2.startAngle = currentAngle;
+                layout_2.endAngle = currentAngle + dir * angle;
                 currentAngle += dir * angle;
               }
             });
@@ -41575,7 +41522,6 @@
         }
       });
     }
-    var getSeriesLayoutData = makeInner();
 
     /*
     * Licensed to the Apache Software Foundation (ASF) under one
@@ -42371,9 +42317,8 @@
 
 
         if (data.count() === 0 && seriesModel.get('showEmptyCircle')) {
-          var layoutData = getSeriesLayoutData(seriesModel);
           var sector = new Sector({
-            shape: extend(getBasicPieLayout(seriesModel, api), layoutData)
+            shape: getBasicPieLayout(seriesModel, api)
           });
           sector.useStyle(seriesModel.getModel('emptyCircleStyle').getItemStyle());
           this._emptyCircleSector = sector;
@@ -42625,8 +42570,6 @@
         // 默认顺时针
         clockwise: true,
         startAngle: 90,
-        endAngle: 'auto',
-        padAngle: 0,
         // 最小角度改为0
         minAngle: 0,
         // If the angle of a sector less than `minShowLabelAngle`,
