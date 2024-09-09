@@ -27,13 +27,38 @@ import GlobalModel from '../../model/Global';
 import ExtensionAPI from '../../core/ExtensionAPI';
 import { Payload, ColorString } from '../../util/types';
 import SeriesData from '../../data/SeriesData';
-import PieSeriesModel, {PieDataItemOption} from './PieSeries';
+import PieSeriesModel, { PieDataItemOption } from './PieSeries';
 import labelLayout from './labelLayout';
 import { setLabelLineStyle, getLabelLineStatesModels } from '../../label/labelGuideHelper';
-import { setLabelStyle, getLabelStatesModels } from '../../label/labelStyle';
+import { setLabelStyle, getLabelStatesModels, createTextStyle } from '../../label/labelStyle';
 import { getSectorCornerRadius } from '../helper/pieHelper';
 import { saveOldStyle } from '../../animation/basicTransition';
 import { getBasicPieLayout } from './pieLayout';
+import { parsePercent } from '../../util/number';
+
+
+interface PosInfo {
+    cx: number
+    cy: number
+    r: number
+}
+
+function parsePosition(seriesModel: PieSeriesModel, api: ExtensionAPI): PosInfo {
+    const center = seriesModel.get('center') as (string | number)[]; // !TODO: we don't have cases without arrays but...
+    const radius = seriesModel.get('radius') as (string | number)[]; // !TODO: we don't have cases without arrays but...
+    const width = api.getWidth();
+    const height = api.getHeight();
+    const size = Math.min(width, height);
+    const cx = parsePercent(center[0], api.getWidth());
+    const cy = parsePercent(center[1], api.getHeight());
+    const r = parsePercent(radius[0], size / 2);
+
+    return {
+        cx: cx,
+        cy: cy,
+        r: r
+    };
+}
 
 /**
  * Piece of pie including Sector, Label, LabelLine
@@ -83,7 +108,7 @@ class PiePiece extends graphic.Sector {
                 graphic.initProps(sector, {
                     scaleX: 0,
                     scaleY: 0
-                }, seriesModel, { dataIndex: idx, isFrom: true});
+                }, seriesModel, { dataIndex: idx, isFrom: true });
                 sector.originX = sectorShape.cx;
                 sector.originY = sectorShape.cy;
             }
@@ -235,6 +260,7 @@ class PieView extends ChartView {
 
     private _data: SeriesData;
     private _emptyCircleSector: graphic.Sector;
+    private _titleEls: graphic.Text[];
 
     render(seriesModel: PieSeriesModel, ecModel: GlobalModel, api: ExtensionAPI, payload: Payload): void {
         const data = seriesModel.getData();
@@ -298,9 +324,11 @@ class PieView extends ChartView {
         if (seriesModel.get('animationTypeUpdate') !== 'expansion') {
             this._data = data;
         }
+
+        this._renderTitle(seriesModel, ecModel, api);
     }
 
-    dispose() {}
+    dispose() { }
 
     containPoint(point: number[], seriesModel: PieSeriesModel): boolean {
         const data = seriesModel.getData();
@@ -311,6 +339,52 @@ class PieView extends ChartView {
             const radius = Math.sqrt(dx * dx + dy * dy);
             return radius <= itemLayout.r && radius >= itemLayout.r0;
         }
+    }
+
+    _renderTitle(
+        seriesModel: PieSeriesModel,
+        ecModel: GlobalModel,
+        api: ExtensionAPI
+    ) {
+        const title = seriesModel?.option.title;
+        if (!title) {
+            return;
+        }
+
+        const posInfo = parsePosition(seriesModel, api);
+        const data = seriesModel.getData();
+
+        const valueDim = data.mapDimension('value');
+        const sum = data.getSum(valueDim);
+        const titleStr = title.str.replace(title.regexVal, `${sum.toFixed(2)}`);
+        const fontSize = title.style?.fontSize || 16;
+
+        const newTitleEls: graphic.Text[] = this._titleEls || [new graphic.Text({
+            silent: true
+        })];
+
+        const itemModel = data.getItemModel<PieSeriesModel>(0);
+
+        const titleX = posInfo.cx + parsePercent(title.offset?.[0] ?? 0, posInfo.r);
+        const titleY = posInfo.cy + parsePercent(title.offset?.[1] ?? 0, posInfo.r) + fontSize / 2;
+        const labelEl = newTitleEls[0];
+        labelEl.attr({
+            z2: 2,
+            style: createTextStyle(itemModel, {
+                x: titleX,
+                y: titleY,
+                text: titleStr,
+                align: 'center',
+                verticalAlign: 'middle',
+                fill: title?.style?.color || '#000000',
+                fontWeight: 600,
+                overflow: 'break',
+                ...title.style
+            }, {})
+        });
+
+        this.group.add(labelEl);
+        this._titleEls = newTitleEls;
     }
 }
 
