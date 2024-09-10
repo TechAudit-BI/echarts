@@ -44,7 +44,7 @@ import type SeriesData from '../../data/SeriesData';
 
 interface TitleOption extends LabelOption {
     str: string;
-    regexVal?: string;
+    formatter?: (value: number) => string;
     isSum?: boolean;
     style: Dictionary<any>;
 }

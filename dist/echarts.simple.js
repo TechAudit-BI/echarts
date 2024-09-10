@@ -42413,8 +42413,13 @@
         var posInfo = parsePosition(seriesModel, api);
         var data = seriesModel.getData();
         var valueDim = data.mapDimension('value');
-        var sum = data.getSum(valueDim);
-        var titleStr = title.str.replace(title.regexVal, "" + sum.toFixed(2));
+        var titleStr = title.str;
+
+        if (title.isSum) {
+          var sumVal = data.getSum(valueDim);
+          titleStr += (title === null || title === void 0 ? void 0 : title.formatter) ? title.formatter(sumVal) : "" + sumVal;
+        }
+
         var newTitleEls = this._titleEls || [new ZRText({
           silent: true
         })];

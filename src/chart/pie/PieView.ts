@@ -363,8 +363,12 @@ class PieView extends ChartView {
         const data = seriesModel.getData();
 
         const valueDim = data.mapDimension('value');
-        const sum = data.getSum(valueDim);
-        const titleStr = title.str.replace(title.regexVal, `${sum.toFixed(2)}`);
+        let titleStr = title.str;
+
+        if (title.isSum) {
+            const sumVal = data.getSum(valueDim);
+            titleStr += title?.formatter ? title.formatter(sumVal) : `${sumVal}`;
+        }
 
         const newTitleEls: graphic.Text[] = this._titleEls || [new graphic.Text({
             silent: true
