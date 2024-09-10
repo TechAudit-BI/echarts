@@ -38,25 +38,33 @@ import { parsePercent } from '../../util/number';
 
 
 interface PosInfo {
-    cx: number
-    cy: number
-    r: number
+    cx: number;
+    cy: number;
+    r: number;
+    offsetX: number;
+    offsetY: number;
+
 }
 
 function parsePosition(seriesModel: PieSeriesModel, api: ExtensionAPI): PosInfo {
+    const { top, right, bottom, left } = seriesModel?.option;
     const center = seriesModel.get('center') as (string | number)[]; // !TODO: we don't have cases without arrays but...
     const radius = seriesModel.get('radius') as (string | number)[]; // !TODO: we don't have cases without arrays but...
     const width = api.getWidth();
     const height = api.getHeight();
     const size = Math.min(width, height);
-    const cx = parsePercent(center[0], api.getWidth());
-    const cy = parsePercent(center[1], api.getHeight());
+    const cx = parsePercent(center[0], width);
+    const cy = parsePercent(center[1], height);
     const r = parsePercent(radius[0], size / 2);
+    const offsetX = (+left - +right) / 2;
+    const offsetY = (+top - +bottom) / 2;
 
     return {
-        cx: cx,
-        cy: cy,
-        r: r
+        cx,
+        cy,
+        r,
+        offsetX,
+        offsetY
     };
 }
 
@@ -357,7 +365,6 @@ class PieView extends ChartView {
         const valueDim = data.mapDimension('value');
         const sum = data.getSum(valueDim);
         const titleStr = title.str.replace(title.regexVal, `${sum.toFixed(2)}`);
-        const fontSize = title.style?.fontSize || 16;
 
         const newTitleEls: graphic.Text[] = this._titleEls || [new graphic.Text({
             silent: true
@@ -365,8 +372,8 @@ class PieView extends ChartView {
 
         const itemModel = data.getItemModel<PieSeriesModel>(0);
 
-        const titleX = posInfo.cx + parsePercent(title.offset?.[0] ?? 0, posInfo.r);
-        const titleY = posInfo.cy + parsePercent(title.offset?.[1] ?? 0, posInfo.r) + fontSize / 2;
+        const titleX = posInfo.cx + posInfo.offsetX + parsePercent(title.offset?.[0] ?? 0, posInfo.r);
+        const titleY = posInfo.cy + posInfo.offsetY + parsePercent(title.offset?.[1] ?? 0, posInfo.r);
         const labelEl = newTitleEls[0];
         labelEl.attr({
             z2: 2,
@@ -379,7 +386,7 @@ class PieView extends ChartView {
                 fill: title?.style?.color || '#000000',
                 fontWeight: 600,
                 overflow: 'break',
-                ...title.style
+                ...title.style,
             }, {})
         });
 
