@@ -386,7 +386,7 @@ class PieView extends ChartView {
                 fill: title?.style?.color || '#000000',
                 fontWeight: 600,
                 overflow: 'break',
-                ...title.style,
+                ...title.style
             }, {})
         });
 
