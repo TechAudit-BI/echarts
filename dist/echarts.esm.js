@@ -46133,6 +46133,11 @@ function (_super) {
     var title = seriesModel === null || seriesModel === void 0 ? void 0 : seriesModel.option.title;
 
     if (!title) {
+      if (this._titleEls) {
+        this.group.remove(this._titleEls[0]);
+        this._titleEls = null;
+      }
+
       return;
     }
 
@@ -88165,7 +88170,7 @@ function (_super) {
     var contentGroup = this.getContentGroup();
     var selectorGroup = this.getSelectorGroup();
     var selectorRect = selectorGroup.getBoundingRect();
-    var margin = maxSize["margin"] || [0, 0, 0, 0];
+    var margin = maxSize.margin || [0, 0, 0, 0];
     var selectorButtonGap = 0;
     var seletorMaxWidth = 0;
     var selectorLength = 0;
@@ -88181,7 +88186,8 @@ function (_super) {
         var _a, _b;
 
         return acc + ((_b = (_a = val === null || val === void 0 ? void 0 : val._rect) === null || _a === void 0 ? void 0 : _a.width) !== null && _b !== void 0 ? _b : 0);
-      }, 0)) + selectorButtonGap * gapLength;
+      }, 0)) + selectorButtonGap * gapLength; // eslint-disable-line
+
       selectorRect.width = seletorMaxWidth;
     }
 
@@ -88699,7 +88705,7 @@ function (_super) {
 
   ScrollableLegendView.prototype.layoutInner = function (legendModel, itemAlign, maxSize, isFirstRender, selector, selectorPosition) {
     var selectorGroup = this.getSelectorGroup();
-    var margin = maxSize["margin"] || [0, 0, 0, 0];
+    var margin = maxSize.margin || [0, 0, 0, 0];
     var orientIdx = legendModel.getOrient().index;
     var wh = WH$1[orientIdx];
     var xy = XY$1[orientIdx];

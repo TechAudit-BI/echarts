@@ -358,6 +358,10 @@ class PieView extends ChartView {
     ) {
         const title = seriesModel?.option.title;
         if (!title) {
+            if (this._titleEls) {
+                this.group.remove(this._titleEls[0]);
+                this._titleEls = null;
+            }
             return;
         }
 

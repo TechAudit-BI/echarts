@@ -42460,6 +42460,11 @@
         var title = seriesModel === null || seriesModel === void 0 ? void 0 : seriesModel.option.title;
 
         if (!title) {
+          if (this._titleEls) {
+            this.group.remove(this._titleEls[0]);
+            this._titleEls = null;
+          }
+
           return;
         }
 
