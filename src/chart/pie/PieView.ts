@@ -33,7 +33,7 @@ import { setLabelLineStyle, getLabelLineStatesModels } from '../../label/labelGu
 import { setLabelStyle, getLabelStatesModels, createTextStyle } from '../../label/labelStyle';
 import { getSectorCornerRadius } from '../helper/pieHelper';
 import { saveOldStyle } from '../../animation/basicTransition';
-import { getBasicPieLayout } from './pieLayout';
+import { getBasicPieLayout, getSeriesLayoutData } from './pieLayout';
 import { parsePercent } from '../../util/number';
 
 
@@ -294,9 +294,11 @@ class PieView extends ChartView {
         }
         // when all data are filtered, show lightgray empty circle
         if (data.count() === 0 && seriesModel.get('showEmptyCircle')) {
+            const layoutData = getSeriesLayoutData(seriesModel);
             const sector = new graphic.Sector({
-                shape: getBasicPieLayout(seriesModel, api)
+                shape: extend(getBasicPieLayout(seriesModel, api), layoutData)
             });
+
             sector.useStyle(seriesModel.getModel('emptyCircleStyle').getItemStyle());
             this._emptyCircleSector = sector;
             group.add(sector);
