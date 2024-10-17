@@ -473,7 +473,7 @@ function getIntervalTicks(
         out.push({
             value: dateTime,
             // notAdd: true,
-            startDate: true,
+            startDate: true
         });
     }
 
@@ -557,8 +557,8 @@ function getIntervalTicks(
 
             const noAddedTicks = newAddedTicks
                 .filter((tick) => tick.startDate === true)
-                .map(tick => tick.value)
-            const newStartTick = noAddedTicks.slice(-1)?.[0]
+                .map(tick => tick.value);
+            const newStartTick = noAddedTicks.slice(-1)?.[0];
 
             addTicksInSpan(
                 interval, newStartTick ?? startTick, endTick, getterName, setterName, isDate, newAddedTicks
