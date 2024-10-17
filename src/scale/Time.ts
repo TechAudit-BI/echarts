@@ -437,7 +437,8 @@ function getIntervalTicks(
     // const bottomPrimaryUnitName = getPrimaryTimeUnit(bottomUnitName);
 
     interface InnerTimeTick extends TimeScaleTick {
-        notAdd?: boolean
+        notAdd?: boolean;
+        startDate?: boolean;
     }
 
     let iter = 0;
@@ -471,7 +472,8 @@ function getIntervalTicks(
         // This extra tick is for calcuating ticks of next level. Will not been added to the final result
         out.push({
             value: dateTime,
-            notAdd: true
+            // notAdd: true,
+            startDate: true,
         });
     }
 
@@ -498,7 +500,7 @@ function getIntervalTicks(
 
         for (let i = 0; i < lastLevelTicks.length - 1; i++) {
             const startTick = lastLevelTicks[i].value;
-            const endTick = lastLevelTicks[i + 1].value;
+            const endTick = lastLevelTicks[i + 1].value > extent[1] ? extent[1] : lastLevelTicks[i + 1].value;
             if (startTick === endTick) {
                 continue;
             }
@@ -553,8 +555,13 @@ function getIntervalTicks(
                     break;
             }
 
+            const noAddedTicks = newAddedTicks
+                .filter((tick) => tick.startDate === true)
+                .map(tick => tick.value)
+            const newStartTick = noAddedTicks.slice(-1)?.[0]
+
             addTicksInSpan(
-                interval, startTick, endTick, getterName, setterName, isDate, newAddedTicks
+                interval, newStartTick ?? startTick, endTick, getterName, setterName, isDate, newAddedTicks
             );
 
             if (unitName === 'year' && levelTicks.length > 1 && i === 0) {
