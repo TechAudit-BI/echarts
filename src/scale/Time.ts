@@ -166,6 +166,7 @@ class TimeScale extends IntervalScale<TimeScaleSetting> {
             this._minLevelUnit,
             this._approxInterval,
             interval,
+            this._isIntervalCustom,
             useUTC,
             extent
         );
@@ -431,6 +432,7 @@ function getIntervalTicks(
     bottomUnitName: TimeUnit,
     approxInterval: number,
     customInterval: number,
+    isIntervalCustom: boolean,
     isUTC: boolean,
     extent: number[]
 ): TimeScaleTick[] {
@@ -506,7 +508,6 @@ function getIntervalTicks(
             if (startTick === endTick) {
                 continue;
             }
-
             let interval: number;
             let getterName;
             let setterName;
@@ -528,7 +529,7 @@ function getIntervalTicks(
                 case 'week':    // PENDING If week is added. Ignore day.
                 case 'half-week':
                 case 'day':
-                    interval = customInterval && this._isIntervalCustom ? customInterval / ONE_DAY : getDateInterval(approxInterval, 31); // Use 32 days and let interval been 16
+                    interval = customInterval && isIntervalCustom ? customInterval / ONE_DAY : getDateInterval(approxInterval, 31); // Use 32 days and let interval been 16
                     getterName = dateGetterName(isUTC);
                     setterName = dateSetterName(isUTC);
                     isDate = true;
