@@ -476,6 +476,8 @@ function getIntervalTicks(
         // This extra tick is for calcuating ticks of next level. Will not been added to the final result
         out.push({
             value: dateTime,
+            // The notAdd field has been replaced with startDate so that the countdown does not start over with
+            // the start of a new higher level unit
             // notAdd: true,
             startDate: true
         });
@@ -522,14 +524,18 @@ function getIntervalTicks(
                 case 'half-year':
                 case 'quarter':
                 case 'month':
-                    interval = getMonthInterval(approxInterval);
+                    interval = customInterval && isIntervalCustom
+                        ? customInterval / (30 * ONE_DAY)
+                        : getMonthInterval(approxInterval);
                     getterName = monthGetterName(isUTC);
                     setterName = monthSetterName(isUTC);
                     break;
                 case 'week':    // PENDING If week is added. Ignore day.
                 case 'half-week':
                 case 'day':
-                    interval = customInterval && isIntervalCustom ? customInterval / ONE_DAY : getDateInterval(approxInterval, 31); // Use 32 days and let interval been 16
+                    interval = customInterval && isIntervalCustom
+                        ? customInterval / ONE_DAY
+                        : getDateInterval(approxInterval, 31); // Use 32 days and let interval been 16
                     getterName = dateGetterName(isUTC);
                     setterName = dateSetterName(isUTC);
                     isDate = true;
@@ -537,22 +543,30 @@ function getIntervalTicks(
                 case 'half-day':
                 case 'quarter-day':
                 case 'hour':
-                    interval = getHourInterval(approxInterval);
+                    interval = customInterval && isIntervalCustom
+                        ? customInterval / ONE_HOUR
+                        : getHourInterval(approxInterval);
                     getterName = hoursGetterName(isUTC);
                     setterName = hoursSetterName(isUTC);
                     break;
                 case 'minute':
-                    interval = getMinutesAndSecondsInterval(approxInterval, true);
+                    interval = customInterval && isIntervalCustom
+                        ? customInterval / ONE_MINUTE
+                        : getMinutesAndSecondsInterval(approxInterval, true);
                     getterName = minutesGetterName(isUTC);
                     setterName = minutesSetterName(isUTC);
                     break;
                 case 'second':
-                    interval = getMinutesAndSecondsInterval(approxInterval, false);
+                    interval = customInterval && isIntervalCustom
+                        ? customInterval / ONE_SECOND
+                        : getMinutesAndSecondsInterval(approxInterval, false);
                     getterName = secondsGetterName(isUTC);
                     setterName = secondsSetterName(isUTC);
                     break;
                 case 'millisecond':
-                    interval = getMillisecondsInterval(approxInterval);
+                    interval = customInterval && isIntervalCustom
+                        ? customInterval
+                        : getMillisecondsInterval(approxInterval);
                     getterName = millisecondsGetterName(isUTC);
                     setterName = millisecondsSetterName(isUTC);
                     break;
