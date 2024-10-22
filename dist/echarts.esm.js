@@ -33762,6 +33762,7 @@ function (_super) {
     _this.type = 'interval'; // Step is calculated in adjustExtent.
 
     _this._interval = 0;
+    _this._isIntervalCustom = false;
     _this._intervalPrecision = 2;
     return _this;
   }
@@ -33807,7 +33808,8 @@ function (_super) {
   };
 
   IntervalScale.prototype.setInterval = function (interval) {
-    this._interval = interval; // Dropped auto calculated niceExtent and use user-set extent.
+    this._interval = interval;
+    this._isIntervalCustom = true; // Dropped auto calculated niceExtent and use user-set extent.
     // We assume user wants to set both interval, min, max to get a better result.
 
     this._niceExtent = this._extent.slice();
@@ -34579,7 +34581,7 @@ function (_super) {
       level: 0
     });
     var useUTC = this.getSetting('useUTC');
-    var innerTicks = getIntervalTicks(this._minLevelUnit, this._approxInterval, useUTC, extent);
+    var innerTicks = getIntervalTicks(this._minLevelUnit, this._approxInterval, interval, this._isIntervalCustom, useUTC, extent);
     ticks = ticks.concat(innerTicks);
     ticks.push({
       value: extent[1],
@@ -34825,7 +34827,7 @@ function getFirstTimestampOfUnit(date, unitName, isUTC) {
   return outDate.getTime();
 }
 
-function getIntervalTicks(bottomUnitName, approxInterval, isUTC, extent) {
+function getIntervalTicks(bottomUnitName, approxInterval, customInterval, isIntervalCustom, isUTC, extent) {
   var safeLimit = 10000;
   var unitNames = timeUnits;
   var iter = 0;
@@ -34849,11 +34851,16 @@ function getIntervalTicks(bottomUnitName, approxInterval, isUTC, extent) {
 
     out.push({
       value: dateTime,
-      notAdd: true
+      // The notAdd field has been replaced with startDate so that the countdown does not start over with
+      // the start of a new higher level unit
+      // notAdd: true,
+      startDate: true
     });
   }
 
   function addLevelTicks(unitName, lastLevelTicks, levelTicks) {
+    var _a;
+
     var newAddedTicks = [];
     var isFirstLevel = !lastLevelTicks.length;
 
@@ -34872,7 +34879,7 @@ function getIntervalTicks(bottomUnitName, approxInterval, isUTC, extent) {
 
     for (var i = 0; i < lastLevelTicks.length - 1; i++) {
       var startTick = lastLevelTicks[i].value;
-      var endTick = lastLevelTicks[i + 1].value;
+      var endTick = lastLevelTicks[i + 1].value > extent[1] ? extent[1] : lastLevelTicks[i + 1].value;
 
       if (startTick === endTick) {
         continue;
@@ -34893,7 +34900,7 @@ function getIntervalTicks(bottomUnitName, approxInterval, isUTC, extent) {
         case 'half-year':
         case 'quarter':
         case 'month':
-          interval = getMonthInterval(approxInterval);
+          interval = customInterval && isIntervalCustom ? customInterval / (30 * ONE_DAY) : getMonthInterval(approxInterval);
           getterName = monthGetterName(isUTC);
           setterName = monthSetterName(isUTC);
           break;
@@ -34902,7 +34909,7 @@ function getIntervalTicks(bottomUnitName, approxInterval, isUTC, extent) {
 
         case 'half-week':
         case 'day':
-          interval = getDateInterval(approxInterval); // Use 32 days and let interval been 16
+          interval = customInterval && isIntervalCustom ? customInterval / ONE_DAY : getDateInterval(approxInterval); // Use 32 days and let interval been 16
 
           getterName = dateGetterName(isUTC);
           setterName = dateSetterName(isUTC);
@@ -34912,31 +34919,37 @@ function getIntervalTicks(bottomUnitName, approxInterval, isUTC, extent) {
         case 'half-day':
         case 'quarter-day':
         case 'hour':
-          interval = getHourInterval(approxInterval);
+          interval = customInterval && isIntervalCustom ? customInterval / ONE_HOUR : getHourInterval(approxInterval);
           getterName = hoursGetterName(isUTC);
           setterName = hoursSetterName(isUTC);
           break;
 
         case 'minute':
-          interval = getMinutesAndSecondsInterval(approxInterval, true);
+          interval = customInterval && isIntervalCustom ? customInterval / ONE_MINUTE : getMinutesAndSecondsInterval(approxInterval, true);
           getterName = minutesGetterName(isUTC);
           setterName = minutesSetterName(isUTC);
           break;
 
         case 'second':
-          interval = getMinutesAndSecondsInterval(approxInterval, false);
+          interval = customInterval && isIntervalCustom ? customInterval / ONE_SECOND : getMinutesAndSecondsInterval(approxInterval, false);
           getterName = secondsGetterName(isUTC);
           setterName = secondsSetterName(isUTC);
           break;
 
         case 'millisecond':
-          interval = getMillisecondsInterval(approxInterval);
+          interval = customInterval && isIntervalCustom ? customInterval : getMillisecondsInterval(approxInterval);
           getterName = millisecondsGetterName(isUTC);
           setterName = millisecondsSetterName(isUTC);
           break;
       }
 
-      addTicksInSpan(interval, startTick, endTick, getterName, setterName, isDate, newAddedTicks);
+      var noAddedTicks = newAddedTicks.filter(function (tick) {
+        return tick.startDate === true;
+      }).map(function (tick) {
+        return tick.value;
+      });
+      var newStartTick = (_a = noAddedTicks.slice(-1)) === null || _a === void 0 ? void 0 : _a[0];
+      addTicksInSpan(interval, newStartTick !== null && newStartTick !== void 0 ? newStartTick : startTick, endTick, getterName, setterName, isDate, newAddedTicks);
 
       if (unitName === 'year' && levelTicks.length > 1 && i === 0) {
         // Add nearest years to the left extent.
