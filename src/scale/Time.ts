@@ -68,7 +68,9 @@ import {
     dateGetterName,
     minutesGetterName,
     secondsGetterName,
-    millisecondsGetterName
+    millisecondsGetterName,
+    scaleIntervals,
+    getIndexByInterval,
 } from '../util/time';
 import * as scaleHelper from './helper';
 import IntervalScale from './Interval';
@@ -81,7 +83,7 @@ import Model from '../model/Model';
 import { filter, isNumber, map } from 'zrender/src/core/util';
 
 // FIXME 公用？
-const bisect = function (
+export const bisect = function (
     a: [string | number, number][],
     x: number,
     lo: number,
@@ -145,7 +147,7 @@ class TimeScale extends IntervalScale<TimeScaleSetting> {
     /**
      * @override
      */
-    getTicks(): TimeScaleTick[] {
+    getTicks(expandToNicedExtent?: boolean, onlyMaxLevel?: boolean): TimeScaleTick[] {
         const interval = this._interval;
         const extent = this._extent;
 
@@ -167,7 +169,8 @@ class TimeScale extends IntervalScale<TimeScaleSetting> {
             this._approxInterval,
             this._isIntervalCustom ? interval : null,
             useUTC,
-            extent
+            extent,
+            onlyMaxLevel
         );
 
         ticks = ticks.concat(innerTicks);
@@ -220,11 +223,7 @@ class TimeScale extends IntervalScale<TimeScaleSetting> {
             this._approxInterval = maxInterval;
         }
 
-        const scaleIntervalsLen = scaleIntervals.length;
-        const idx = Math.min(
-            bisect(scaleIntervals, this._approxInterval, 0, scaleIntervalsLen),
-            scaleIntervalsLen - 1
-        );
+        const idx = getIndexByInterval(this._approxInterval);
 
         // Interval that can be used to calculate ticks
         this._interval = scaleIntervals[idx][1];
@@ -251,29 +250,6 @@ class TimeScale extends IntervalScale<TimeScaleSetting> {
     }
 
 }
-
-
-/**
- * This implementation was originally copied from "d3.js"
- * <https://github.com/d3/d3/blob/b516d77fb8566b576088e73410437494717ada26/src/time/scale.js>
- * with some modifications made for this program.
- * See the license statement at the head of this file.
- */
-const scaleIntervals: [TimeUnit, number][] = [
-    // Format                           interval
-    ['second', ONE_SECOND],             // 1s
-    ['minute', ONE_MINUTE],             // 1m
-    ['hour', ONE_HOUR],                 // 1h
-    ['quarter-day', ONE_HOUR * 6],      // 6h
-    ['half-day', ONE_HOUR * 12],        // 12h
-    ['day', ONE_DAY * 1.2],             // 1d
-    ['half-week', ONE_DAY * 3.5],       // 3.5d
-    ['week', ONE_DAY * 7],              // 7d
-    ['month', ONE_DAY * 31],            // 1M
-    ['quarter', ONE_DAY * 95],          // 3M
-    ['half-year', ONE_YEAR / 2],        // 6M
-    ['year', ONE_YEAR]                  // 1Y
-];
 
 function isUnitValueSame(
     unit: PrimaryTimeUnit,
@@ -432,7 +408,8 @@ function getIntervalTicks(
     approxInterval: number,
     customInterval: number | null,
     isUTC: boolean,
-    extent: number[]
+    extent: number[],
+    onlyMaxLevel: boolean
 ): TimeScaleTick[] {
     const safeLimit = 10000;
     const unitNames = timeUnits;
@@ -647,16 +624,29 @@ function getIntervalTicks(
         return filter(levelTicks, tick => tick.value >= extent[0] && tick.value <= extent[1]);
     }), levelTicks => levelTicks.length > 0);
 
-    const ticks: TimeScaleTick[] = [];
+    let ticks: TimeScaleTick[] = [];
     const maxLevel = levelsTicksInExtent.length - 1;
-    for (let i = 0; i < levelsTicksInExtent.length; ++i) {
-        const levelTicks = levelsTicksInExtent[i];
+    if (onlyMaxLevel) {
+        const levelTicks = levelsTicksInExtent[maxLevel];
+        ticks = getLevelTicks(levelTicks);
+    } else {
+        for (let i = 0; i < levelsTicksInExtent.length; ++i) {
+            const levelTicks = levelsTicksInExtent[i];
+            ticks = getLevelTicks(levelTicks, i);
+        }
+    }    
+
+    function getLevelTicks(levelTicks: InnerTimeTick[], level: number = 0): TimeScaleTick[]  {
+        const ticks: TimeScaleTick[] = [];
+
         for (let k = 0; k < levelTicks.length; ++k) {
             ticks.push({
                 value: levelTicks[k].value,
-                level: maxLevel - i
+                level: maxLevel - level
             });
         }
+        
+        return ticks
     }
 
     ticks.sort((a, b) => a.value - b.value);
