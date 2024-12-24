@@ -44,7 +44,6 @@ import {
     ONE_MINUTE,
     ONE_HOUR,
     ONE_DAY,
-    ONE_YEAR,
     format,
     leveledFormat,
     PrimaryTimeUnit,
@@ -70,7 +69,7 @@ import {
     secondsGetterName,
     millisecondsGetterName,
     scaleIntervals,
-    getIndexByInterval,
+    getIndexByInterval
 } from '../util/time';
 import * as scaleHelper from './helper';
 import IntervalScale from './Interval';
@@ -629,14 +628,15 @@ function getIntervalTicks(
     if (onlyMaxLevel) {
         const levelTicks = levelsTicksInExtent[maxLevel];
         ticks = getLevelTicks(levelTicks);
-    } else {
+    }
+ else {
         for (let i = 0; i < levelsTicksInExtent.length; ++i) {
             const levelTicks = levelsTicksInExtent[i];
             ticks = getLevelTicks(levelTicks, i);
         }
-    }    
+    }
 
-    function getLevelTicks(levelTicks: InnerTimeTick[], level: number = 0): TimeScaleTick[]  {
+    function getLevelTicks(levelTicks: InnerTimeTick[], level: number = 0): TimeScaleTick[] {
         const ticks: TimeScaleTick[] = [];
 
         for (let k = 0; k < levelTicks.length; ++k) {
@@ -645,8 +645,8 @@ function getIntervalTicks(
                 level: maxLevel - level
             });
         }
-        
-        return ticks
+
+        return ticks;
     }
 
     ticks.sort((a, b) => a.value - b.value);

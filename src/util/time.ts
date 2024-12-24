@@ -70,11 +70,11 @@ export function getIndexByInterval(interval: number) {
     return Math.min(
         bisect(scaleIntervals, interval, 0, scaleIntervals.length),
         scaleIntervals.length - 1
-    )
+    );
 }
 
 export function getUnitByInterval(interval: number) {
-    return scaleIntervals[Math.max(getIndexByInterval(interval) , 0)][0]
+    return scaleIntervals[Math.max(getIndexByInterval(interval), 0)][0];
 }
 
 const fullDayFormatter = '{yyyy}-{MM}-{dd}';

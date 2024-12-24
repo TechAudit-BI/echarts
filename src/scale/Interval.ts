@@ -23,7 +23,16 @@ import * as formatUtil from '../util/format';
 import Scale from './Scale';
 import * as helper from './helper';
 import {ScaleTick, Dictionary} from '../util/types';
-import { getUnitByInterval, ONE_DAY,  ONE_HOUR,  ONE_MINUTE,  ONE_MONTH,  ONE_SECOND,  ONE_LEAP_YEAR,  TimeUnit } from '../util/time';
+import {
+    getUnitByInterval,
+    ONE_DAY,
+    ONE_HOUR,
+    ONE_MINUTE,
+    ONE_MONTH,
+    ONE_SECOND,
+    ONE_LEAP_YEAR,
+    TimeUnit
+} from '../util/time';
 
 const roundNumber = numberUtil.round;
 const SPLIT_NUMBER_DEFAULT = 5;
@@ -188,10 +197,10 @@ class IntervalScale<SETTING extends Dictionary<unknown> = Dictionary<unknown>> e
 
         return minorTicks;
     }
-    
+
     getMinorSplits(interval: number): number {
         if (interval <= 0) {
-            return 0
+            return 0;
         }
         const unit = getUnitByInterval(interval);
         const unitMap: Partial<Record<TimeUnit, () => number>> = {
@@ -207,7 +216,7 @@ class IntervalScale<SETTING extends Dictionary<unknown> = Dictionary<unknown>> e
             'quarter': getMonthSplit,
             'half-year': getMonthSplit,
             'year': getYearSplit
-        }
+        };
 
         function getYearSplit() {
             return Math.ceil(interval / ONE_LEAP_YEAR);
