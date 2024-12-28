@@ -151,6 +151,7 @@ class TimeScale extends IntervalScale<TimeScaleSetting> {
     /**
      * @override
      */
+    // onlyMaxLevel is used in minor ticks for filtering
     getTicks(expandToNicedExtent?: boolean, onlyMaxLevel?: boolean): TimeScaleTick[] {
         const interval = this._interval;
         const extent = this._extent;
@@ -225,41 +226,23 @@ class TimeScale extends IntervalScale<TimeScaleSetting> {
             return 0;
         }
         const unit = getUnitByInterval(interval);
-        const unitMap: Partial<Record<TimeUnit, () => number>> = {
-            'second': getSecondSplit,
-            'minute': getMinuteSplit,
-            'hour': getHourSplit,
-            'half-day': getHourSplit,
-            'quarter-day': getHourSplit,
-            'day': getDaySplit,
-            'half-week': getDaySplit,
-            'week': getDaySplit,
-            'month': getMonthSplit,
-            'quarter': getMonthSplit,
-            'half-year': getMonthSplit,
-            'year': getYearSplit
+        const unitMap: Partial<Record<TimeUnit, number>> = {
+            'second': ONE_SECOND,
+            'minute': ONE_MINUTE,
+            'hour': ONE_HOUR,
+            'half-day': ONE_HOUR,
+            'quarter-day': ONE_HOUR,
+            'day': ONE_DAY,
+            'half-week': ONE_DAY,
+            'week': ONE_DAY,
+            'month': ONE_MONTH,
+            'quarter': ONE_MONTH,
+            'half-year': ONE_MONTH,
+            'year': ONE_LEAP_YEAR
         };
+        const getSplit = (period: number) => Math.ceil(interval / period);
 
-        function getYearSplit() {
-            return Math.ceil(interval / ONE_LEAP_YEAR);
-        }
-        function getMonthSplit() {
-            return Math.ceil(interval / ONE_MONTH);
-        }
-        function getDaySplit() {
-            return Math.ceil(interval / ONE_DAY);
-        }
-        function getHourSplit() {
-            return Math.ceil(interval / ONE_HOUR);
-        }
-        function getMinuteSplit() {
-            return Math.ceil(interval / ONE_MINUTE);
-        }
-        function getSecondSplit() {
-            return Math.ceil(interval / ONE_SECOND);
-        }
-
-        return unit in unitMap ? unitMap[unit]() : SPLIT_NUMBER_DEFAULT;
+        return unit in unitMap ? getSplit(unitMap[unit]) : SPLIT_NUMBER_DEFAULT;
     }
 
     calcNiceExtent(

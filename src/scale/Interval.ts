@@ -92,7 +92,7 @@ class IntervalScale<SETTING extends Dictionary<unknown> = Dictionary<unknown>> e
     /**
      * @param expandToNicedExtent Whether expand the ticks to niced extent.
      */
-    getTicks(expandToNicedExtent?: boolean, onlyMaxLevel?: boolean): ScaleTick[] {
+    getTicks(expandToNicedExtent?: boolean): ScaleTick[] {
         const interval = this._interval;
         const extent = this._extent;
         const niceTickExtent = this._niceExtent;
