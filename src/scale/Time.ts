@@ -69,10 +69,13 @@ import {
     secondsGetterName,
     millisecondsGetterName,
     scaleIntervals,
-    getIndexByInterval
+    getIndexByInterval,
+    getUnitByInterval,
+    ONE_LEAP_YEAR,
+    ONE_MONTH
 } from '../util/time';
 import * as scaleHelper from './helper';
-import IntervalScale from './Interval';
+import IntervalScale, { SPLIT_NUMBER_DEFAULT } from './Interval';
 import Scale from './Scale';
 import {TimeScaleTick, ScaleTick} from '../util/types';
 import {TimeAxisLabelFormatterOption} from '../coord/axisCommonTypes';
@@ -80,6 +83,8 @@ import { warn } from '../util/log';
 import { LocaleOption } from '../core/locale';
 import Model from '../model/Model';
 import { filter, isNumber, map } from 'zrender/src/core/util';
+
+const roundNumber = numberUtil.round;
 
 // FIXME 公用？
 export const bisect = function (
@@ -180,6 +185,81 @@ class TimeScale extends IntervalScale<TimeScaleSetting> {
         });
 
         return ticks;
+    }
+
+    getMinorTicks(): number[][] {
+        const ticks = this.getTicks(true, true);
+        const minorTicks = [];
+        const extent = this.getExtent();
+
+        for (let i = 1; i < ticks.length; i++) {
+            const nextTick = ticks[i];
+            const prevTick = ticks[i - 1];
+            let count = 0;
+            const minorTicksGroup = [];
+            const interval = nextTick.value - prevTick.value;
+            const splitNumber = this.getMinorSplits(interval);
+            const minorInterval = interval / splitNumber;
+
+            if (this._isIntervalCustom && this._interval > interval) {
+                continue;
+            }
+
+            while (count < splitNumber - 1) {
+                const minorTick = roundNumber(prevTick.value + (count + 1) * minorInterval);
+
+                // For the first and last interval. The count may be less than splitNumber.
+                if (minorTick > extent[0] && minorTick < extent[1]) {
+                    minorTicksGroup.push(minorTick);
+                }
+                count++;
+            }
+            minorTicks.push(minorTicksGroup);
+        }
+
+        return minorTicks;
+    }
+
+    getMinorSplits(interval: number): number {
+        if (interval <= 0) {
+            return 0;
+        }
+        const unit = getUnitByInterval(interval);
+        const unitMap: Partial<Record<TimeUnit, () => number>> = {
+            'second': getSecondSplit,
+            'minute': getMinuteSplit,
+            'hour': getHourSplit,
+            'half-day': getHourSplit,
+            'quarter-day': getHourSplit,
+            'day': getDaySplit,
+            'half-week': getDaySplit,
+            'week': getDaySplit,
+            'month': getMonthSplit,
+            'quarter': getMonthSplit,
+            'half-year': getMonthSplit,
+            'year': getYearSplit
+        };
+
+        function getYearSplit() {
+            return Math.ceil(interval / ONE_LEAP_YEAR);
+        }
+        function getMonthSplit() {
+            return Math.ceil(interval / ONE_MONTH);
+        }
+        function getDaySplit() {
+            return Math.ceil(interval / ONE_DAY);
+        }
+        function getHourSplit() {
+            return Math.ceil(interval / ONE_HOUR);
+        }
+        function getMinuteSplit() {
+            return Math.ceil(interval / ONE_MINUTE);
+        }
+        function getSecondSplit() {
+            return Math.ceil(interval / ONE_SECOND);
+        }
+
+        return unit in unitMap ? unitMap[unit]() : SPLIT_NUMBER_DEFAULT;
     }
 
     calcNiceExtent(

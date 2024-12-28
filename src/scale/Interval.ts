@@ -23,19 +23,9 @@ import * as formatUtil from '../util/format';
 import Scale from './Scale';
 import * as helper from './helper';
 import {ScaleTick, Dictionary} from '../util/types';
-import {
-    getUnitByInterval,
-    ONE_DAY,
-    ONE_HOUR,
-    ONE_MINUTE,
-    ONE_MONTH,
-    ONE_SECOND,
-    ONE_LEAP_YEAR,
-    TimeUnit
-} from '../util/time';
 
 const roundNumber = numberUtil.round;
-const SPLIT_NUMBER_DEFAULT = 5;
+export const SPLIT_NUMBER_DEFAULT = 5;
 
 class IntervalScale<SETTING extends Dictionary<unknown> = Dictionary<unknown>> extends Scale<SETTING> {
 
@@ -165,8 +155,8 @@ class IntervalScale<SETTING extends Dictionary<unknown> = Dictionary<unknown>> e
         return ticks;
     }
 
-    getMinorTicks(): number[][] {
-        const ticks = this.getTicks(true, true);
+    getMinorTicks(splitNumber: number): number[][] {
+        const ticks = this.getTicks(true);
         const minorTicks = [];
         const extent = this.getExtent();
 
@@ -176,12 +166,7 @@ class IntervalScale<SETTING extends Dictionary<unknown> = Dictionary<unknown>> e
             let count = 0;
             const minorTicksGroup = [];
             const interval = nextTick.value - prevTick.value;
-            const splitNumber = this.getMinorSplits(interval);
             const minorInterval = interval / splitNumber;
-
-            if (this._isIntervalCustom && this._interval > interval) {
-                continue;
-            }
 
             while (count < splitNumber - 1) {
                 const minorTick = roundNumber(prevTick.value + (count + 1) * minorInterval);
@@ -196,48 +181,6 @@ class IntervalScale<SETTING extends Dictionary<unknown> = Dictionary<unknown>> e
         }
 
         return minorTicks;
-    }
-
-    getMinorSplits(interval: number): number {
-        if (interval <= 0) {
-            return 0;
-        }
-        const unit = getUnitByInterval(interval);
-        const unitMap: Partial<Record<TimeUnit, () => number>> = {
-            'second': getSecondSplit,
-            'minute': getMinuteSplit,
-            'hour': getHourSplit,
-            'half-day': getHourSplit,
-            'quarter-day': getHourSplit,
-            'day': getDaySplit,
-            'half-week': getDaySplit,
-            'week': getDaySplit,
-            'month': getMonthSplit,
-            'quarter': getMonthSplit,
-            'half-year': getMonthSplit,
-            'year': getYearSplit
-        };
-
-        function getYearSplit() {
-            return Math.ceil(interval / ONE_LEAP_YEAR);
-        }
-        function getMonthSplit() {
-            return Math.ceil(interval / ONE_MONTH);
-        }
-        function getDaySplit() {
-            return Math.ceil(interval / ONE_DAY);
-        }
-        function getHourSplit() {
-            return Math.ceil(interval / ONE_HOUR);
-        }
-        function getMinuteSplit() {
-            return Math.ceil(interval / ONE_MINUTE);
-        }
-        function getSecondSplit() {
-            return Math.ceil(interval / ONE_SECOND);
-        }
-
-        return unit in unitMap ? unitMap[unit]() : SPLIT_NUMBER_DEFAULT;
     }
 
     /**
