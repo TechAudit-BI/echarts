@@ -201,8 +201,10 @@ class TimeScale extends IntervalScale<TimeScaleSetting> {
             const interval = nextTick.value - prevTick.value;
             const splitNumber = this.getMinorSplits(interval);
             const minorInterval = interval / splitNumber;
+            const unit = getUnitByInterval(this._interval);
+            const currentUnit = getUnitByInterval(interval);
 
-            if (this._isIntervalCustom && this._interval > interval) {
+            if (this._isIntervalCustom && currentUnit !== unit) {
                 continue;
             }
 
