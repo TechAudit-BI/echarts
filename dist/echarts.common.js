@@ -16707,7 +16707,7 @@
        */
 
 
-      IntervalScale.prototype.getTicks = function (expandToNicedExtent, onlyMaxLevel) {
+      IntervalScale.prototype.getTicks = function (expandToNicedExtent) {
         var interval = this._interval;
         var extent = this._extent;
         var niceTickExtent = this._niceExtent;
@@ -16772,8 +16772,8 @@
         return ticks;
       };
 
-      IntervalScale.prototype.getMinorTicks = function () {
-        var ticks = this.getTicks(true, true);
+      IntervalScale.prototype.getMinorTicks = function (splitNumber) {
+        var ticks = this.getTicks(true);
         var minorTicks = [];
         var extent = this.getExtent();
 
@@ -16783,12 +16783,7 @@
           var count = 0;
           var minorTicksGroup = [];
           var interval = nextTick.value - prevTick.value;
-          var splitNumber = this.getMinorSplits(interval);
           var minorInterval = interval / splitNumber;
-
-          if (this._isIntervalCustom && this._interval > interval) {
-            continue;
-          }
 
           while (count < splitNumber - 1) {
             var minorTick = roundNumber(prevTick.value + (count + 1) * minorInterval); // For the first and last interval. The count may be less than splitNumber.
@@ -16804,54 +16799,6 @@
         }
 
         return minorTicks;
-      };
-
-      IntervalScale.prototype.getMinorSplits = function (interval) {
-        if (interval <= 0) {
-          return 0;
-        }
-
-        var unit = getUnitByInterval(interval);
-        var unitMap = {
-          'second': getSecondSplit,
-          'minute': getMinuteSplit,
-          'hour': getHourSplit,
-          'half-day': getHourSplit,
-          'quarter-day': getHourSplit,
-          'day': getDaySplit,
-          'half-week': getDaySplit,
-          'week': getDaySplit,
-          'month': getMonthSplit,
-          'quarter': getMonthSplit,
-          'half-year': getMonthSplit,
-          'year': getYearSplit
-        };
-
-        function getYearSplit() {
-          return Math.ceil(interval / ONE_LEAP_YEAR);
-        }
-
-        function getMonthSplit() {
-          return Math.ceil(interval / ONE_MONTH);
-        }
-
-        function getDaySplit() {
-          return Math.ceil(interval / ONE_DAY);
-        }
-
-        function getHourSplit() {
-          return Math.ceil(interval / ONE_HOUR);
-        }
-
-        function getMinuteSplit() {
-          return Math.ceil(interval / ONE_MINUTE);
-        }
-
-        function getSecondSplit() {
-          return Math.ceil(interval / ONE_SECOND);
-        }
-
-        return unit in unitMap ? unitMap[unit]() : SPLIT_NUMBER_DEFAULT;
       };
       /**
        * @param opt.precision If 'auto', use nice presision.
@@ -16959,6 +16906,8 @@
 
     Scale.registerClass(IntervalScale);
 
+    var roundNumber$1 = round; // FIXME 公用？
+
     var bisect = function (a, x, lo, hi) {
       while (lo < hi) {
         var mid = lo + hi >>> 1;
@@ -17002,6 +16951,7 @@
       /**
        * @override
        */
+      // onlyMaxLevel is used in minor ticks for filtering
 
 
       TimeScale.prototype.getTicks = function (expandToNicedExtent, onlyMaxLevel) {
@@ -17025,6 +16975,70 @@
           level: 0
         });
         return ticks;
+      };
+
+      TimeScale.prototype.getMinorTicks = function () {
+        var ticks = this.getTicks(true, true);
+        var minorTicks = [];
+        var extent = this.getExtent();
+
+        for (var i = 1; i < ticks.length; i++) {
+          var nextTick = ticks[i];
+          var prevTick = ticks[i - 1];
+          var count = 0;
+          var minorTicksGroup = [];
+          var interval = nextTick.value - prevTick.value;
+          var splitNumber = this.getMinorSplits(interval);
+          var minorInterval = interval / splitNumber;
+          var unit = getUnitByInterval(this._interval);
+          var currentUnit = getUnitByInterval(interval);
+
+          if (this._isIntervalCustom && currentUnit !== unit) {
+            continue;
+          }
+
+          while (count < splitNumber - 1) {
+            var minorTick = roundNumber$1(prevTick.value + (count + 1) * minorInterval); // For the first and last interval. The count may be less than splitNumber.
+
+            if (minorTick > extent[0] && minorTick < extent[1]) {
+              minorTicksGroup.push(minorTick);
+            }
+
+            count++;
+          }
+
+          minorTicks.push(minorTicksGroup);
+        }
+
+        return minorTicks;
+      };
+
+      TimeScale.prototype.getMinorSplits = function (interval) {
+        if (interval <= 0) {
+          return 0;
+        }
+
+        var unit = getUnitByInterval(interval);
+        var unitMap = {
+          'second': ONE_SECOND,
+          'minute': ONE_MINUTE,
+          'hour': ONE_HOUR,
+          'half-day': ONE_HOUR,
+          'quarter-day': ONE_HOUR,
+          'day': ONE_DAY,
+          'half-week': ONE_DAY,
+          'week': ONE_DAY,
+          'month': ONE_MONTH,
+          'quarter': ONE_MONTH,
+          'half-year': ONE_MONTH,
+          'year': ONE_LEAP_YEAR
+        };
+
+        var getSplit = function (period) {
+          return Math.ceil(interval / period);
+        };
+
+        return unit in unitMap ? getSplit(unitMap[unit]) : SPLIT_NUMBER_DEFAULT;
       };
 
       TimeScale.prototype.calcNiceExtent = function (opt) {
