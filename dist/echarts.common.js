@@ -17492,7 +17492,7 @@
       } else {
         for (var i = 0; i < levelsTicksInExtent.length; ++i) {
           var levelTicks = levelsTicksInExtent[i];
-          ticks = getLevelTicks(levelTicks, i);
+          ticks.push.apply(ticks, getLevelTicks(levelTicks, i));
         }
       }
 
