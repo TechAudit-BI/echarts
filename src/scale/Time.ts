@@ -694,10 +694,10 @@ function getIntervalTicks(
         const levelTicks = levelsTicksInExtent[maxLevel];
         ticks = getLevelTicks(levelTicks);
     }
- else {
+    else {
         for (let i = 0; i < levelsTicksInExtent.length; ++i) {
             const levelTicks = levelsTicksInExtent[i];
-            ticks = getLevelTicks(levelTicks, i);
+            ticks.push(...getLevelTicks(levelTicks, i));
         }
     }
 
