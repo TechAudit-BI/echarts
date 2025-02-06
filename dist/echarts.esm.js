@@ -17151,12 +17151,14 @@ function (_super) {
       var count = 0;
       var minorTicksGroup = [];
       var interval = nextTick.value - prevTick.value;
-      var splitNumber = this.getMinorSplits(interval);
+      var minorSplits = this.getMinorSplits(interval);
+      var splitNumber = minorSplits > 10 ? Math.ceil(minorSplits / 2) : minorSplits; // reduce too many splits
+
       var minorInterval = interval / splitNumber;
       var unit = getUnitByInterval(this._interval);
       var currentUnit = getUnitByInterval(interval);
 
-      if (this._isIntervalCustom && currentUnit !== unit) {
+      if (getPrimaryTimeUnit(currentUnit) !== getPrimaryTimeUnit(unit)) {
         continue;
       }
 
@@ -17191,7 +17193,7 @@ function (_super) {
       'day': ONE_DAY,
       'half-week': ONE_DAY,
       'week': ONE_DAY,
-      'month': ONE_MONTH,
+      'month': ONE_DAY,
       'quarter': ONE_MONTH,
       'half-year': ONE_MONTH,
       'year': ONE_LEAP_YEAR
