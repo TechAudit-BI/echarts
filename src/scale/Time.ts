@@ -199,12 +199,13 @@ class TimeScale extends IntervalScale<TimeScaleSetting> {
             let count = 0;
             const minorTicksGroup = [];
             const interval = nextTick.value - prevTick.value;
-            const splitNumber = this.getMinorSplits(interval);
+            const minorSplits = this.getMinorSplits(interval);
+            const splitNumber = minorSplits > 10 ? Math.ceil(minorSplits / 2) : minorSplits; // reduce too many splits
             const minorInterval = interval / splitNumber;
             const unit = getUnitByInterval(this._interval);
             const currentUnit = getUnitByInterval(interval);
 
-            if (this._isIntervalCustom && currentUnit !== unit) {
+            if (getPrimaryTimeUnit(currentUnit) !== getPrimaryTimeUnit(unit)) {
                 continue;
             }
 
@@ -237,7 +238,7 @@ class TimeScale extends IntervalScale<TimeScaleSetting> {
             'day': ONE_DAY,
             'half-week': ONE_DAY,
             'week': ONE_DAY,
-            'month': ONE_MONTH,
+            'month': ONE_DAY,
             'quarter': ONE_MONTH,
             'half-year': ONE_MONTH,
             'year': ONE_LEAP_YEAR
