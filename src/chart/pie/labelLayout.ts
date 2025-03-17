@@ -342,6 +342,8 @@ export default function pieLabelLayout(
     seriesModel: PieSeriesModel
 ) {
     const data = seriesModel.getData();
+    const showLabelsProp = seriesModel.get('label')?.show ?? true;
+    const showLabelsLineProp = seriesModel.get('labelLine')?.show ?? false;
     const labelLayoutList: LabelLayout[] = [];
     let cx;
     let cy;
@@ -396,12 +398,13 @@ export default function pieLabelLayout(
         let labelLineLen2 = labelLineModel.get('length2');
         labelLineLen2 = parsePercent(labelLineLen2, viewWidth);
 
-        const isLabelHidden = Math.abs(sectorShape.endAngle - sectorShape.startAngle) < minShowLabelRadian;
+        const isLabelHidden = (Math.abs(sectorShape.endAngle - sectorShape.startAngle) < minShowLabelRadian)
+            || !showLabelsProp;
         each(label.states, isLabelHidden ? setNotShow : setShow);
         label.ignore = isLabelHidden;
         if (labelLine) {
-            each(labelLine.states, isLabelHidden ? setNotShow : setShow);
-            labelLine.ignore = isLabelHidden;
+            each(labelLine.states, isLabelHidden || !showLabelsLineProp ? setNotShow : setShow);
+            labelLine.ignore = isLabelHidden || !showLabelsLineProp;
         }
 
         if (!isLabelShown(label)) {
