@@ -44549,7 +44549,11 @@
     }
 
     function pieLabelLayout(seriesModel) {
+      var _a, _b, _c, _d;
+
       var data = seriesModel.getData();
+      var showLabelsProp = (_b = (_a = seriesModel.get('label')) === null || _a === void 0 ? void 0 : _a.show) !== null && _b !== void 0 ? _b : true;
+      var showLabelsLineProp = (_d = (_c = seriesModel.get('labelLine')) === null || _c === void 0 ? void 0 : _c.show) !== null && _d !== void 0 ? _d : false;
       var labelLayoutList = [];
       var cx;
       var cy;
@@ -44602,13 +44606,13 @@
         labelLineLen = parsePercent$1(labelLineLen, viewWidth);
         var labelLineLen2 = labelLineModel.get('length2');
         labelLineLen2 = parsePercent$1(labelLineLen2, viewWidth);
-        var isLabelHidden = Math.abs(sectorShape.endAngle - sectorShape.startAngle) < minShowLabelRadian;
+        var isLabelHidden = Math.abs(sectorShape.endAngle - sectorShape.startAngle) < minShowLabelRadian || !showLabelsProp;
         each(label.states, isLabelHidden ? setNotShow : setShow);
         label.ignore = isLabelHidden;
 
         if (labelLine) {
-          each(labelLine.states, isLabelHidden ? setNotShow : setShow);
-          labelLine.ignore = isLabelHidden;
+          each(labelLine.states, isLabelHidden || !showLabelsLineProp ? setNotShow : setShow);
+          labelLine.ignore = isLabelHidden || !showLabelsLineProp;
         }
 
         if (!isLabelShown(label)) {
