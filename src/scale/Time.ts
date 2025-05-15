@@ -192,6 +192,23 @@ class TimeScale extends IntervalScale<TimeScaleSetting> {
         const ticks = this.getTicks(true, true);
         const minorTicks = [];
         const extent = this.getExtent();
+        const intervalStats: Record<number, number> = {};
+        let dominantInterval: number | null = null;
+        let maxCount = 0;
+
+        for (let i = 1; i < ticks.length; i++) {
+            const interval = ticks[i].value - ticks[i - 1].value;
+            const count = (intervalStats[interval] || 0) + 1;
+            intervalStats[interval] = count;
+
+            if (count > maxCount && interval > 0) {
+                maxCount = count;
+                dominantInterval = interval;
+            }
+        }
+        const dominantSplits = this.getMinorSplits(dominantInterval);
+        const dominantSplitNumber = dominantSplits > 10 ? Math.ceil(dominantSplits / 2) : dominantSplits;
+        const dominantMinorInterval = dominantInterval / dominantSplitNumber;
 
         for (let i = 1; i < ticks.length; i++) {
             const nextTick = ticks[i];
@@ -199,18 +216,9 @@ class TimeScale extends IntervalScale<TimeScaleSetting> {
             let count = 0;
             const minorTicksGroup = [];
             const interval = nextTick.value - prevTick.value;
-            const minorSplits = this.getMinorSplits(interval);
-            const splitNumber = minorSplits > 10 ? Math.ceil(minorSplits / 2) : minorSplits; // reduce too many splits
-            const minorInterval = interval / splitNumber;
-            const unit = getUnitByInterval(this._interval);
-            const currentUnit = getUnitByInterval(interval);
-
-            if (getPrimaryTimeUnit(currentUnit) !== getPrimaryTimeUnit(unit)) {
-                continue;
-            }
-
+            const splitNumber = Math.round(interval / dominantMinorInterval);
             while (count < splitNumber - 1) {
-                const minorTick = roundNumber(prevTick.value + (count + 1) * minorInterval);
+                const minorTick = roundNumber(prevTick.value + (count + 1) * dominantMinorInterval);
 
                 // For the first and last interval. The count may be less than splitNumber.
                 if (minorTick > extent[0] && minorTick < extent[1]) {
