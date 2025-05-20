@@ -234,7 +234,7 @@ class TimeScale extends IntervalScale<TimeScaleSetting> {
         const dominantSplits = this.getMinorSplits(dominantInterval);
         const dominantSplitNumber = dominantSplits > 10 ? Math.ceil(dominantSplits / 2) : dominantSplits;
 
-        return dominantInterval / dominantSplitNumber
+        return dominantInterval / dominantSplitNumber;
     }
 
     getMinorSplits(interval: number): number {
