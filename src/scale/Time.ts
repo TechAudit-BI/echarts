@@ -192,23 +192,7 @@ class TimeScale extends IntervalScale<TimeScaleSetting> {
         const ticks = this.getTicks(true, true);
         const minorTicks = [];
         const extent = this.getExtent();
-        const intervalStats: Record<number, number> = {};
-        let dominantInterval: number | null = null;
-        let maxCount = 0;
-
-        for (let i = 1; i < ticks.length; i++) {
-            const interval = ticks[i].value - ticks[i - 1].value;
-            const count = (intervalStats[interval] || 0) + 1;
-            intervalStats[interval] = count;
-
-            if (count > maxCount && interval > 0) {
-                maxCount = count;
-                dominantInterval = interval;
-            }
-        }
-        const dominantSplits = this.getMinorSplits(dominantInterval);
-        const dominantSplitNumber = dominantSplits > 10 ? Math.ceil(dominantSplits / 2) : dominantSplits;
-        const dominantMinorInterval = dominantInterval / dominantSplitNumber;
+        const dominantMinorInterval = this.getDominantMinorInterval(ticks);
 
         for (let i = 1; i < ticks.length; i++) {
             const nextTick = ticks[i];
@@ -230,6 +214,27 @@ class TimeScale extends IntervalScale<TimeScaleSetting> {
         }
 
         return minorTicks;
+    }
+
+    getDominantMinorInterval(ticks: TimeScaleTick[]) {
+        const intervalStats: Record<number, number> = {};
+        let dominantInterval: number | null = null;
+        let maxCount = 0;
+
+        for (let i = 1; i < ticks.length; i++) {
+            const interval = ticks[i].value - ticks[i - 1].value;
+            const count = (intervalStats[interval] || 0) + 1;
+            intervalStats[interval] = count;
+
+            if (count > maxCount && interval > 0) {
+                maxCount = count;
+                dominantInterval = interval;
+            }
+        }
+        const dominantSplits = this.getMinorSplits(dominantInterval);
+        const dominantSplitNumber = dominantSplits > 10 ? Math.ceil(dominantSplits / 2) : dominantSplits;
+
+        return dominantInterval / dominantSplitNumber
     }
 
     getMinorSplits(interval: number): number {
