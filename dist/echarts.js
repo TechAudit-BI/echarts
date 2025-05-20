@@ -17150,24 +17150,7 @@
         var ticks = this.getTicks(true, true);
         var minorTicks = [];
         var extent = this.getExtent();
-        var intervalStats = {};
-        var dominantInterval = null;
-        var maxCount = 0;
-
-        for (var i = 1; i < ticks.length; i++) {
-          var interval = ticks[i].value - ticks[i - 1].value;
-          var count = (intervalStats[interval] || 0) + 1;
-          intervalStats[interval] = count;
-
-          if (count > maxCount && interval > 0) {
-            maxCount = count;
-            dominantInterval = interval;
-          }
-        }
-
-        var dominantSplits = this.getMinorSplits(dominantInterval);
-        var dominantSplitNumber = dominantSplits > 10 ? Math.ceil(dominantSplits / 2) : dominantSplits;
-        var dominantMinorInterval = dominantInterval / dominantSplitNumber;
+        var dominantMinorInterval = this.getDominantMinorInterval(ticks);
 
         for (var i = 1; i < ticks.length; i++) {
           var nextTick = ticks[i];
@@ -17191,6 +17174,27 @@
         }
 
         return minorTicks;
+      };
+
+      TimeScale.prototype.getDominantMinorInterval = function (ticks) {
+        var intervalStats = {};
+        var dominantInterval = null;
+        var maxCount = 0;
+
+        for (var i = 1; i < ticks.length; i++) {
+          var interval = ticks[i].value - ticks[i - 1].value;
+          var count = (intervalStats[interval] || 0) + 1;
+          intervalStats[interval] = count;
+
+          if (count > maxCount && interval > 0) {
+            maxCount = count;
+            dominantInterval = interval;
+          }
+        }
+
+        var dominantSplits = this.getMinorSplits(dominantInterval);
+        var dominantSplitNumber = dominantSplits > 10 ? Math.ceil(dominantSplits / 2) : dominantSplits;
+        return dominantInterval / dominantSplitNumber;
       };
 
       TimeScale.prototype.getMinorSplits = function (interval) {
