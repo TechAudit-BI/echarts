@@ -17144,6 +17144,7 @@ function (_super) {
     var ticks = this.getTicks(true, true);
     var minorTicks = [];
     var extent = this.getExtent();
+    var dominantMinorInterval = this.getDominantMinorInterval(ticks);
 
     for (var i = 1; i < ticks.length; i++) {
       var nextTick = ticks[i];
@@ -17151,19 +17152,10 @@ function (_super) {
       var count = 0;
       var minorTicksGroup = [];
       var interval = nextTick.value - prevTick.value;
-      var minorSplits = this.getMinorSplits(interval);
-      var splitNumber = minorSplits > 10 ? Math.ceil(minorSplits / 2) : minorSplits; // reduce too many splits
-
-      var minorInterval = interval / splitNumber;
-      var unit = getUnitByInterval(this._interval);
-      var currentUnit = getUnitByInterval(interval);
-
-      if (getPrimaryTimeUnit(currentUnit) !== getPrimaryTimeUnit(unit)) {
-        continue;
-      }
+      var splitNumber = Math.round(interval / dominantMinorInterval);
 
       while (count < splitNumber - 1) {
-        var minorTick = roundNumber$1(prevTick.value + (count + 1) * minorInterval); // For the first and last interval. The count may be less than splitNumber.
+        var minorTick = roundNumber$1(prevTick.value + (count + 1) * dominantMinorInterval); // For the first and last interval. The count may be less than splitNumber.
 
         if (minorTick > extent[0] && minorTick < extent[1]) {
           minorTicksGroup.push(minorTick);
@@ -17176,6 +17168,27 @@ function (_super) {
     }
 
     return minorTicks;
+  };
+
+  TimeScale.prototype.getDominantMinorInterval = function (ticks) {
+    var intervalStats = {};
+    var dominantInterval = null;
+    var maxCount = 0;
+
+    for (var i = 1; i < ticks.length; i++) {
+      var interval = ticks[i].value - ticks[i - 1].value;
+      var count = (intervalStats[interval] || 0) + 1;
+      intervalStats[interval] = count;
+
+      if (count > maxCount && interval > 0) {
+        maxCount = count;
+        dominantInterval = interval;
+      }
+    }
+
+    var dominantSplits = this.getMinorSplits(dominantInterval);
+    var dominantSplitNumber = dominantSplits > 10 ? Math.ceil(dominantSplits / 2) : dominantSplits;
+    return dominantInterval / dominantSplitNumber;
   };
 
   TimeScale.prototype.getMinorSplits = function (interval) {
