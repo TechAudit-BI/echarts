@@ -935,7 +935,7 @@ class SliderZoomView extends DataZoomView {
         this._dragging = false;
         this._showDataInfo(false);
 
-        // Always dispatch action for history usage 
+        // Always dispatch action for history usage
         this._pushSnapshotIfChanged(this._range);
 
         this._dragInitialSaved = false;
@@ -1018,7 +1018,7 @@ class SliderZoomView extends DataZoomView {
         this._updateView();
 
         // save in history brush changes
-        this._pushSnapshotIfChanged(this._range)
+        this._pushSnapshotIfChanged(this._range);
 
         this._dispatchZoomAction(false);
     }
