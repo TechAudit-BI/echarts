@@ -233,7 +233,15 @@ const handlers: { [key in IconType]: (this: DataZoomFeature) => void } = {
     },
 
     back: function () {
-        this._dispatchZoomAction(history.pop(this.ecModel));
+        let zoomState = history.pop(this.ecModel);
+        // Trying to roll back may return an "empty" snapshot,
+        // if there are no more entries in the history for the current dataZoom.
+        // In this case, we do an additional pop() to move to the state of the next dataZoom.
+        // This is necessary to avoid unnecessary manual "Back" clicks by the user.
+        if (!Object.keys(zoomState)?.length && history.count(this.ecModel) > 1) {
+            zoomState = history.pop(this.ecModel);
+        }
+        this._dispatchZoomAction(zoomState);
     }
 };
 

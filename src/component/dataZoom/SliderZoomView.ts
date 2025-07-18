@@ -28,14 +28,14 @@ import sliderMove from '../helper/sliderMove';
 import GlobalModel from '../../model/Global';
 import ExtensionAPI from '../../core/ExtensionAPI';
 import {
-    LayoutOrient, Payload, ZRTextVerticalAlign, ZRTextAlign, ZRElementEvent, ParsedValue
+    LayoutOrient, Payload, ZRTextVerticalAlign, ZRTextAlign, ZRElementEvent, ParsedValue, Dictionary
 } from '../../util/types';
 import SliderZoomModel from './SliderZoomModel';
 import { RectLike } from 'zrender/src/core/BoundingRect';
 import Axis from '../../coord/Axis';
 import SeriesModel from '../../model/Series';
 import { AxisBaseModel } from '../../coord/AxisBaseModel';
-import { getAxisMainType, collectReferCoordSysModelInfo } from './helper';
+import { getAxisMainType, collectReferCoordSysModelInfo, DataZoomPayloadBatchItem } from './helper';
 import { enableHoverEmphasis } from '../../util/states';
 import { createSymbol, symbolBuildProxies } from '../../util/symbol';
 import { deprecateLog } from '../../util/log';
@@ -43,6 +43,7 @@ import { PointLike } from 'zrender/src/core/Point';
 import Displayable from 'zrender/src/graphic/Displayable';
 import {createTextStyle} from '../../label/labelStyle';
 import SeriesData from '../../data/SeriesData';
+import * as history from './history';
 
 const Rect = graphic.Rect;
 
@@ -131,6 +132,9 @@ class SliderZoomView extends DataZoomView {
     private _shadowSize: number[];
     private _shadowPolygonPts: number[][];
     private _shadowPolylinePts: number[][];
+
+    private _dragInitialSaved: boolean = false;
+    private _lastSavedRange: number[] = null;
 
     init(ecModel: GlobalModel, api: ExtensionAPI) {
         this.api = api;
@@ -901,6 +905,12 @@ class SliderZoomView extends DataZoomView {
     }
 
     private _onDragMove(handleIndex: 0 | 1 | 'all', dx: number, dy: number, event: ZRElementEvent) {
+        // Save init state for first drag move
+        if (!this._dragInitialSaved) {
+            const originRange = this.dataZoomModel.getPercentRange();
+            this._pushSnapshotIfChanged(originRange);
+            this._dragInitialSaved = true;
+        }
         this._dragging = true;
 
         // For mobile device, prevent screen slider on the button.
@@ -916,19 +926,20 @@ class SliderZoomView extends DataZoomView {
 
         this._updateView(!realtime);
 
-        // Avoid dispatch dataZoom repeatly but range not changed,
-        // which cause bad visual effect when progressive enabled.
-        changed && realtime && this._dispatchZoomAction(true);
+        if (changed) {
+            this._dispatchZoomAction(realtime);
+        }
     }
 
     private _onDragEnd() {
         this._dragging = false;
         this._showDataInfo(false);
 
-        // While in realtime mode and stream mode, dispatch action when
-        // drag end will cause the whole view rerender, which is unnecessary.
-        const realtime = this.dataZoomModel.get('realtime');
-        !realtime && this._dispatchZoomAction(false);
+        // Always dispatch action for history usage 
+        this._pushSnapshotIfChanged(this._range);
+
+        this._dragInitialSaved = false;
+        this._dispatchZoomAction(false);
     }
 
     private _onClickPanel(e: ZRElementEvent) {
@@ -946,10 +957,21 @@ class SliderZoomView extends DataZoomView {
 
         const changed = this._updateInterval('all', localPoint[0] - center);
         this._updateView();
-        changed && this._dispatchZoomAction(false);
+        if (changed) {
+            // Save state for click action for history
+            const range = this._range;
+            this._pushSnapshotIfChanged(range);
+
+            this._dispatchZoomAction(false);
+        }
     }
 
     private _onBrushStart(e: ZRElementEvent) {
+        // Save init state for brash
+        if (!this._brushing) {
+            const originRange = this.dataZoomModel.getPercentRange();
+            this._pushSnapshotIfChanged(originRange);
+        }
         const x = e.offsetX;
         const y = e.offsetY;
         this._brushStart = new graphic.Point(x, y);
@@ -994,6 +1016,9 @@ class SliderZoomView extends DataZoomView {
         this._handleEnds = [brushShape.x, brushShape.x + brushShape.width];
 
         this._updateView();
+
+        // save in history brush changes
+        this._pushSnapshotIfChanged(this._range)
 
         this._dispatchZoomAction(false);
     }
@@ -1043,14 +1068,16 @@ class SliderZoomView extends DataZoomView {
      */
     _dispatchZoomAction(realtime: boolean) {
         const range = this._range;
-
+        const batchItem = {
+            dataZoomId: this.dataZoomModel.id,
+            start: range[0],
+            end: range[1]
+        };
         this.api.dispatchAction({
             type: 'dataZoom',
             from: this.uid,
-            dataZoomId: this.dataZoomModel.id,
-            animation: realtime ? REALTIME_ANIMATION_CONFIG : null,
-            start: range[0],
-            end: range[1]
+            batch: [batchItem],
+            animation: realtime ? REALTIME_ANIMATION_CONFIG : null
         });
     }
 
@@ -1076,6 +1103,22 @@ class SliderZoomView extends DataZoomView {
         }
 
         return rect;
+    }
+
+    /**
+     * Save snapshot if range is changed relative to the previous saved range
+     */
+    private _pushSnapshotIfChanged(range: number[]): void {
+        if (!this._lastSavedRange || this._lastSavedRange[0] !== range[0] || this._lastSavedRange[1] !== range[1]) {
+            const snapshot: Dictionary<DataZoomPayloadBatchItem> = {};
+            snapshot[this.dataZoomModel.id] = {
+                dataZoomId: this.dataZoomModel.id,
+                start: range[0],
+                end: range[1]
+            };
+            history.push(this.ecModel, snapshot);
+            this._lastSavedRange = range.slice();
+        }
     }
 
 }
