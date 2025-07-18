@@ -23,7 +23,7 @@ import sliderMove from '../helper/sliderMove';
 import GlobalModel from '../../model/Global';
 import SeriesModel from '../../model/Series';
 import ExtensionAPI from '../../core/ExtensionAPI';
-import { Dictionary } from '../../util/types';
+import { Dictionary, SeriesOption, SeriesStackOptionMixin } from '../../util/types';
 // TODO Polar?
 import DataZoomModel from './DataZoomModel';
 import { AxisBaseModel } from '../../coord/AxisBaseModel';
@@ -269,7 +269,7 @@ class AxisProxy {
 
         const axisDim = this._dimName;
         const seriesModels = this.getTargetSeriesModels();
-        const filterMode = dataZoomModel.get('filterMode');
+        let filterMode = dataZoomModel.get('filterMode');
         const valueWindow = this._valueWindow;
 
         if (filterMode === 'none') {
@@ -293,6 +293,16 @@ class AxisProxy {
         // ) {
         //     filterMode = 'empty';
         // }
+
+        // TODO: remove this after fix stacked bar chart and enabled zoom
+        const stacked = seriesModels.some(model => {
+            const stackModel = model as unknown as SeriesModel<SeriesOption & SeriesStackOptionMixin>;
+            return Boolean(stackModel.get('stack'));
+        });
+
+        if (stacked && filterMode === 'filter') {
+            filterMode = 'empty';
+        }
 
         // TODO
         // filterMode 'weakFilter' and 'empty' is not optimized for huge data yet.
