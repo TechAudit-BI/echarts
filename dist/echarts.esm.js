@@ -80300,7 +80300,17 @@ function () {
     // ) {
     //     filterMode = 'empty';
     // }
-    // TODO
+    // TODO: remove this after fix stacked bar chart and enabled zoom
+
+
+    var stacked = seriesModels.some(function (model) {
+      var stackModel = model;
+      return Boolean(stackModel.get('stack'));
+    });
+
+    if (stacked && filterMode === 'filter') {
+      filterMode = 'empty';
+    } // TODO
     // filterMode 'weakFilter' and 'empty' is not optimized for huge data yet.
 
 
