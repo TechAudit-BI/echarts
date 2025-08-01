@@ -62480,6 +62480,14 @@
         return _this;
       }
 
+      GaugeSeriesModel.prototype.init = function (option) {
+        _super.prototype.init.apply(this, arguments); // Enable legend selection for each data item
+        // Use a function instead of direct access because data reference may changed
+
+
+        this.legendVisualProvider = new LegendVisualProvider(bind(this.getData, this), bind(this.getRawData, this));
+      };
+
       GaugeSeriesModel.prototype.getInitialData = function (option, ecModel) {
         return createSeriesDataSimply(this, ['value']);
       };
@@ -62615,6 +62623,7 @@
     function install$e(registers) {
       registers.registerChartView(GaugeView);
       registers.registerSeriesModel(GaugeSeriesModel);
+      registers.registerProcessor(dataFilter('gauge'));
     }
 
     var opacityAccessPath = ['itemStyle', 'opacity'];
@@ -82039,7 +82048,18 @@
         });
       },
       back: function () {
-        this._dispatchZoomAction(pop(this.ecModel));
+        var _a;
+
+        var zoomState = pop(this.ecModel); // Trying to roll back may return an "empty" snapshot,
+        // if there are no more entries in the history for the current dataZoom.
+        // In this case, we do an additional pop() to move to the state of the next dataZoom.
+        // This is necessary to avoid unnecessary manual "Back" clicks by the user.
+
+        if (!((_a = Object.keys(zoomState)) === null || _a === void 0 ? void 0 : _a.length) && count(this.ecModel) > 1) {
+          zoomState = pop(this.ecModel);
+        }
+
+        this._dispatchZoomAction(zoomState);
       }
     };
 
@@ -88017,10 +88037,34 @@
       };
 
       LegendView.prototype.layoutInner = function (legendModel, itemAlign, maxSize, isFirstRender, selector, selectorPosition) {
-        var contentGroup = this.getContentGroup();
-        var selectorGroup = this.getSelectorGroup(); // Place items in contentGroup.
+        var _a, _b, _c;
 
-        box(legendModel.get('orient'), contentGroup, legendModel.get('itemGap'), maxSize.width, maxSize.height);
+        var contentGroup = this.getContentGroup();
+        var selectorGroup = this.getSelectorGroup();
+        var selectorRect = selectorGroup.getBoundingRect();
+        var margin = maxSize["margin"] || [0, 0, 0, 0];
+        var selectorButtonGap = 0;
+        var seletorMaxWidth = 0;
+        var selectorLength = 0;
+        var gapLength = 0;
+
+        if (selector) {
+          selectorButtonGap = legendModel.get('selectorButtonGap', true); // @ts-ignore
+
+          selectorLength = (_b = (_a = selectorGroup === null || selectorGroup === void 0 ? void 0 : selectorGroup._children) === null || _a === void 0 ? void 0 : _a.length) !== null && _b !== void 0 ? _b : 0;
+          gapLength = selectorLength > 0 ? selectorLength - 1 : 0; // @ts-ignore
+
+          seletorMaxWidth = ((_c = selectorGroup === null || selectorGroup === void 0 ? void 0 : selectorGroup._children) === null || _c === void 0 ? void 0 : _c.reduce(function (acc, val) {
+            var _a, _b;
+
+            return acc + ((_b = (_a = val === null || val === void 0 ? void 0 : val._rect) === null || _a === void 0 ? void 0 : _a.width) !== null && _b !== void 0 ? _b : 0);
+          }, 0)) + selectorButtonGap * gapLength;
+          selectorRect.width = seletorMaxWidth;
+        }
+
+        var contentMaxWidth = maxSize.width - seletorMaxWidth - margin[1] - margin[3]; // Place items in contentGroup.
+
+        box(legendModel.get('orient'), contentGroup, legendModel.get('itemGap'), contentMaxWidth, maxSize.height);
         var contentRect = contentGroup.getBoundingRect();
         var contentPos = [-contentRect.x, -contentRect.y];
         selectorGroup.markRedraw();
@@ -88030,18 +88074,17 @@
           // Place buttons in selectorGroup
           box( // Buttons in selectorGroup always layout horizontally
           'horizontal', selectorGroup, legendModel.get('selectorItemGap', true));
-          var selectorRect = selectorGroup.getBoundingRect();
           var selectorPos = [-selectorRect.x, -selectorRect.y];
-          var selectorButtonGap = legendModel.get('selectorButtonGap', true);
           var orientIdx = legendModel.getOrient().index;
           var wh = orientIdx === 0 ? 'width' : 'height';
           var hw = orientIdx === 0 ? 'height' : 'width';
           var yx = orientIdx === 0 ? 'y' : 'x';
+          var marginHW = orientIdx === 0 ? 3 : 0;
 
           if (selectorPosition === 'end') {
-            selectorPos[orientIdx] += contentRect[wh] + selectorButtonGap;
+            selectorPos[orientIdx] += contentRect[wh] + selectorButtonGap + margin[marginHW];
           } else {
-            contentPos[orientIdx] += selectorRect[wh] + selectorButtonGap;
+            contentPos[orientIdx] += selectorRect[wh] + selectorButtonGap + margin[marginHW];
           } // Always align selector to content as 'middle'
 
 
@@ -88533,6 +88576,7 @@
 
       ScrollableLegendView.prototype.layoutInner = function (legendModel, itemAlign, maxSize, isFirstRender, selector, selectorPosition) {
         var selectorGroup = this.getSelectorGroup();
+        var margin = maxSize["margin"] || [0, 0, 0, 0];
         var orientIdx = legendModel.getOrient().index;
         var wh = WH$1[orientIdx];
         var xy = XY$1[orientIdx];
@@ -88550,9 +88594,9 @@
 
         if (selector) {
           if (selectorPosition === 'end') {
-            selectorPos[orientIdx] += mainRect[wh] + selectorButtonGap;
+            selectorPos[orientIdx] += mainRect[wh] + selectorButtonGap - margin[3];
           } else {
-            var offset = selectorRect[wh] + selectorButtonGap;
+            var offset = selectorRect[wh] + selectorButtonGap - margin[3];
             selectorPos[orientIdx] -= offset;
             mainRect[xy] -= offset;
           }
@@ -89425,6 +89469,8 @@
 
         _this.type = SliderZoomView.type;
         _this._displayables = {};
+        _this._dragInitialSaved = false;
+        _this._lastSavedRange = null;
         return _this;
       }
 
@@ -90087,6 +90133,15 @@
       };
 
       SliderZoomView.prototype._onDragMove = function (handleIndex, dx, dy, event) {
+        // Save init state for first drag move
+        if (!this._dragInitialSaved) {
+          var originRange = this.dataZoomModel.getPercentRange();
+
+          this._pushSnapshotIfChanged(originRange);
+
+          this._dragInitialSaved = true;
+        }
+
         this._dragging = true; // For mobile device, prevent screen slider on the button.
 
         stop(event.event); // Transform dx, dy to bar coordination.
@@ -90099,22 +90154,24 @@
 
         var realtime = this.dataZoomModel.get('realtime');
 
-        this._updateView(!realtime); // Avoid dispatch dataZoom repeatly but range not changed,
-        // which cause bad visual effect when progressive enabled.
+        this._updateView(!realtime);
 
-
-        changed && realtime && this._dispatchZoomAction(true);
+        if (changed) {
+          this._dispatchZoomAction(realtime);
+        }
       };
 
       SliderZoomView.prototype._onDragEnd = function () {
         this._dragging = false;
 
-        this._showDataInfo(false); // While in realtime mode and stream mode, dispatch action when
-        // drag end will cause the whole view rerender, which is unnecessary.
+        this._showDataInfo(false); // Always dispatch action for history usage
 
 
-        var realtime = this.dataZoomModel.get('realtime');
-        !realtime && this._dispatchZoomAction(false);
+        this._pushSnapshotIfChanged(this._range);
+
+        this._dragInitialSaved = false;
+
+        this._dispatchZoomAction(false);
       };
 
       SliderZoomView.prototype._onClickPanel = function (e) {
@@ -90133,10 +90190,24 @@
 
         this._updateView();
 
-        changed && this._dispatchZoomAction(false);
+        if (changed) {
+          // Save state for click action for history
+          var range = this._range;
+
+          this._pushSnapshotIfChanged(range);
+
+          this._dispatchZoomAction(false);
+        }
       };
 
       SliderZoomView.prototype._onBrushStart = function (e) {
+        // Save init state for brash
+        if (!this._brushing) {
+          var originRange = this.dataZoomModel.getPercentRange();
+
+          this._pushSnapshotIfChanged(originRange);
+        }
+
         var x = e.offsetX;
         var y = e.offsetY;
         this._brushStart = new Point(x, y);
@@ -90171,7 +90242,10 @@
         this._range = asc([linearMap(brushShape.x, viewExtend, percentExtent, true), linearMap(brushShape.x + brushShape.width, viewExtend, percentExtent, true)]);
         this._handleEnds = [brushShape.x, brushShape.x + brushShape.width];
 
-        this._updateView();
+        this._updateView(); // save in history brush changes
+
+
+        this._pushSnapshotIfChanged(this._range);
 
         this._dispatchZoomAction(false);
       };
@@ -90219,13 +90293,16 @@
 
       SliderZoomView.prototype._dispatchZoomAction = function (realtime) {
         var range = this._range;
+        var batchItem = {
+          dataZoomId: this.dataZoomModel.id,
+          start: range[0],
+          end: range[1]
+        };
         this.api.dispatchAction({
           type: 'dataZoom',
           from: this.uid,
-          dataZoomId: this.dataZoomModel.id,
-          animation: realtime ? REALTIME_ANIMATION_CONFIG : null,
-          start: range[0],
-          end: range[1]
+          batch: [batchItem],
+          animation: realtime ? REALTIME_ANIMATION_CONFIG : null
         });
       };
 
@@ -90251,6 +90328,23 @@
         }
 
         return rect;
+      };
+      /**
+       * Save snapshot if range is changed relative to the previous saved range
+       */
+
+
+      SliderZoomView.prototype._pushSnapshotIfChanged = function (range) {
+        if (!this._lastSavedRange || this._lastSavedRange[0] !== range[0] || this._lastSavedRange[1] !== range[1]) {
+          var snapshot = {};
+          snapshot[this.dataZoomModel.id] = {
+            dataZoomId: this.dataZoomModel.id,
+            start: range[0],
+            end: range[1]
+          };
+          push(this.ecModel, snapshot);
+          this._lastSavedRange = range.slice();
+        }
       };
 
       SliderZoomView.type = 'dataZoom.slider';
