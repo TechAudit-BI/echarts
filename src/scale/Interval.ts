@@ -25,6 +25,7 @@ import * as helper from './helper';
 import {ScaleTick, Dictionary} from '../util/types';
 
 const roundNumber = numberUtil.round;
+export const SPLIT_NUMBER_DEFAULT = 5;
 
 class IntervalScale<SETTING extends Dictionary<unknown> = Dictionary<unknown>> extends Scale<SETTING> {
 
@@ -33,6 +34,7 @@ class IntervalScale<SETTING extends Dictionary<unknown> = Dictionary<unknown>> e
 
     // Step is calculated in adjustExtent.
     protected _interval: number = 0;
+    protected _isIntervalCustom: boolean = false;
     protected _niceExtent: [number, number];
     private _intervalPrecision: number = 2;
 
@@ -79,6 +81,7 @@ class IntervalScale<SETTING extends Dictionary<unknown> = Dictionary<unknown>> e
 
     setInterval(interval: number): void {
         this._interval = interval;
+        this._isIntervalCustom = true;
         // Dropped auto calculated niceExtent and use user-set extent.
         // We assume user wants to set both interval, min, max to get a better result.
         this._niceExtent = this._extent.slice() as [number, number];
@@ -216,7 +219,7 @@ class IntervalScale<SETTING extends Dictionary<unknown> = Dictionary<unknown>> e
      * @param splitNumber By default `5`.
      */
     calcNiceTicks(splitNumber?: number, minInterval?: number, maxInterval?: number): void {
-        splitNumber = splitNumber || 5;
+        splitNumber = splitNumber || SPLIT_NUMBER_DEFAULT;
         const extent = this._extent;
         let span = extent[1] - extent[0];
         if (!isFinite(span)) {

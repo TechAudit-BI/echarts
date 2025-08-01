@@ -36,9 +36,18 @@ import {
     OptionDataItemObject,
     StatesOptionMixin,
     SeriesLabelOption,
-    DefaultEmphasisFocus
+    DefaultEmphasisFocus,
+    LabelOption,
+    Dictionary
 } from '../../util/types';
 import type SeriesData from '../../data/SeriesData';
+
+interface TitleOption extends LabelOption {
+    str: string;
+    formatter?: (value: number) => string;
+    isSum?: boolean;
+    style: Dictionary<any>;
+}
 
 interface PieItemStyleOption<TCbParams = never> extends ItemStyleOption<TCbParams> {
     // can be 10
@@ -53,7 +62,8 @@ interface PieItemStyleOption<TCbParams = never> extends ItemStyleOption<TCbParam
 }
 
 export interface PieCallbackDataParams extends CallbackDataParams {
-    percent: number
+    percent: number;
+    title?: TitleOption;
 }
 
 export interface PieStateOption<TCbParams = never> {
@@ -110,8 +120,13 @@ export interface PieSeriesOption extends
 
     center?: string | number | (string | number)[]
 
+    title?: TitleOption;
+
     clockwise?: boolean
     startAngle?: number
+    endAngle?: number | 'auto'
+    padAngle?: number;
+
     minAngle?: number
     minShowLabelAngle?: number
 
@@ -217,6 +232,8 @@ class PieSeriesModel extends SeriesModel<PieSeriesOption> {
         // 默认顺时针
         clockwise: true,
         startAngle: 90,
+        endAngle: 'auto',
+        padAngle: 0,
         // 最小角度改为0
         minAngle: 0,
 
@@ -245,6 +262,8 @@ class PieSeriesModel extends SeriesModel<PieSeriesOption> {
         bottom: 0,
         width: null,
         height: null,
+
+        title: undefined,
 
         label: {
             // color: 'inherit',
