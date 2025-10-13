@@ -214,7 +214,7 @@ export default function pieLayout(
         // Rest sectors needs recalculate angle
         if (restAngle < PI2 && validDataCount) {
             // Average the angle if rest angle is not enough after all angles is
-            // Constrained by minAngle
+            // Constrained by minAngle and padAngle
             if (restAngle <= 1e-3) {
                 const angle = angleRange / validDataCount;
                 data.each(valueDim, function (value: number, idx: number) {
