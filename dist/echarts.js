@@ -55,6 +55,17 @@
         d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
     }
 
+    var __assign = function() {
+        __assign = Object.assign || function __assign(t) {
+            for (var s, i = 1, n = arguments.length; i < n; i++) {
+                s = arguments[i];
+                for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p)) t[p] = s[p];
+            }
+            return t;
+        };
+        return __assign.apply(this, arguments);
+    };
+
     var Browser = (function () {
         function Browser() {
             this.firefox = false;
@@ -16205,11 +16216,907 @@
     registerLocale(LOCALE_EN, langEN);
     registerLocale(LOCALE_ZH, langZH);
 
+    function isValueNice(val) {
+      var exp10 = Math.pow(10, quantityExponent(Math.abs(val)));
+      var f = Math.abs(val / exp10);
+      return f === 0 || f === 1 || f === 2 || f === 3 || f === 5;
+    }
+    function isIntervalOrLogScale(scale) {
+      return scale.type === 'interval' || scale.type === 'log';
+    }
+    /**
+     * @param extent Both extent[0] and extent[1] should be valid number.
+     *               Should be extent[0] < extent[1].
+     * @param splitNumber splitNumber should be >= 1.
+     */
+    function intervalScaleNiceTicks(extent, splitNumber, minInterval, maxInterval) {
+      var result = {};
+      var span = extent[1] - extent[0];
+      var interval = result.interval = nice(span / splitNumber, true);
+      if (minInterval != null && interval < minInterval) {
+        interval = result.interval = minInterval;
+      }
+      if (maxInterval != null && interval > maxInterval) {
+        interval = result.interval = maxInterval;
+      }
+      // Tow more digital for tick.
+      var precision = result.intervalPrecision = getIntervalPrecision(interval);
+      // Niced extent inside original extent
+      var niceTickExtent = result.niceTickExtent = [round(Math.ceil(extent[0] / interval) * interval, precision), round(Math.floor(extent[1] / interval) * interval, precision)];
+      fixExtent(niceTickExtent, extent);
+      return result;
+    }
+    function increaseInterval(interval) {
+      var exp10 = Math.pow(10, quantityExponent(interval));
+      // Increase interval
+      var f = interval / exp10;
+      if (!f) {
+        f = 1;
+      } else if (f === 2) {
+        f = 3;
+      } else if (f === 3) {
+        f = 5;
+      } else {
+        // f is 1 or 5
+        f *= 2;
+      }
+      return round(f * exp10);
+    }
+    /**
+     * @return interval precision
+     */
+    function getIntervalPrecision(interval) {
+      // Tow more digital for tick.
+      return getPrecision(interval) + 2;
+    }
+    function clamp(niceTickExtent, idx, extent) {
+      niceTickExtent[idx] = Math.max(Math.min(niceTickExtent[idx], extent[1]), extent[0]);
+    }
+    // In some cases (e.g., splitNumber is 1), niceTickExtent may be out of extent.
+    function fixExtent(niceTickExtent, extent) {
+      !isFinite(niceTickExtent[0]) && (niceTickExtent[0] = extent[0]);
+      !isFinite(niceTickExtent[1]) && (niceTickExtent[1] = extent[1]);
+      clamp(niceTickExtent, 0, extent);
+      clamp(niceTickExtent, 1, extent);
+      if (niceTickExtent[0] > niceTickExtent[1]) {
+        niceTickExtent[0] = niceTickExtent[1];
+      }
+    }
+    function contain$1(val, extent) {
+      return val >= extent[0] && val <= extent[1];
+    }
+    function normalize$1(val, extent) {
+      if (extent[1] === extent[0]) {
+        return 0.5;
+      }
+      return (val - extent[0]) / (extent[1] - extent[0]);
+    }
+    function scale$2(val, extent) {
+      return val * (extent[1] - extent[0]) + extent[0];
+    }
+
+    var Scale = /** @class */function () {
+      function Scale(setting) {
+        this._setting = setting || {};
+        this._extent = [Infinity, -Infinity];
+      }
+      Scale.prototype.getSetting = function (name) {
+        return this._setting[name];
+      };
+      /**
+       * Set extent from data
+       */
+      Scale.prototype.unionExtent = function (other) {
+        var extent = this._extent;
+        other[0] < extent[0] && (extent[0] = other[0]);
+        other[1] > extent[1] && (extent[1] = other[1]);
+        // not setExtent because in log axis it may transformed to power
+        // this.setExtent(extent[0], extent[1]);
+      };
+      /**
+       * Set extent from data
+       */
+      Scale.prototype.unionExtentFromData = function (data, dim) {
+        this.unionExtent(data.getApproximateExtent(dim));
+      };
+      /**
+       * Get extent
+       *
+       * Extent is always in increase order.
+       */
+      Scale.prototype.getExtent = function () {
+        return this._extent.slice();
+      };
+      /**
+       * Set extent
+       */
+      Scale.prototype.setExtent = function (start, end) {
+        var thisExtent = this._extent;
+        if (!isNaN(start)) {
+          thisExtent[0] = start;
+        }
+        if (!isNaN(end)) {
+          thisExtent[1] = end;
+        }
+      };
+      /**
+       * If value is in extent range
+       */
+      Scale.prototype.isInExtentRange = function (value) {
+        return this._extent[0] <= value && this._extent[1] >= value;
+      };
+      /**
+       * When axis extent depends on data and no data exists,
+       * axis ticks should not be drawn, which is named 'blank'.
+       */
+      Scale.prototype.isBlank = function () {
+        return this._isBlank;
+      };
+      /**
+       * When axis extent depends on data and no data exists,
+       * axis ticks should not be drawn, which is named 'blank'.
+       */
+      Scale.prototype.setBlank = function (isBlank) {
+        this._isBlank = isBlank;
+      };
+      return Scale;
+    }();
+    enableClassManagement(Scale);
+
+    var roundNumber = round;
+    var SPLIT_NUMBER_DEFAULT = 5;
+    var IntervalScale = /** @class */function (_super) {
+      __extends(IntervalScale, _super);
+      function IntervalScale() {
+        var _this = _super !== null && _super.apply(this, arguments) || this;
+        _this.type = 'interval';
+        // Step is calculated in adjustExtent.
+        _this._interval = 0;
+        _this._isIntervalCustom = false;
+        _this._intervalPrecision = 2;
+        return _this;
+      }
+      IntervalScale.prototype.parse = function (val) {
+        return val;
+      };
+      IntervalScale.prototype.contain = function (val) {
+        return contain$1(val, this._extent);
+      };
+      IntervalScale.prototype.normalize = function (val) {
+        return normalize$1(val, this._extent);
+      };
+      IntervalScale.prototype.scale = function (val) {
+        return scale$2(val, this._extent);
+      };
+      IntervalScale.prototype.setExtent = function (start, end) {
+        var thisExtent = this._extent;
+        // start,end may be a Number like '25',so...
+        if (!isNaN(start)) {
+          thisExtent[0] = parseFloat(start);
+        }
+        if (!isNaN(end)) {
+          thisExtent[1] = parseFloat(end);
+        }
+      };
+      IntervalScale.prototype.unionExtent = function (other) {
+        var extent = this._extent;
+        other[0] < extent[0] && (extent[0] = other[0]);
+        other[1] > extent[1] && (extent[1] = other[1]);
+        // unionExtent may called by it's sub classes
+        this.setExtent(extent[0], extent[1]);
+      };
+      IntervalScale.prototype.getInterval = function () {
+        return this._interval;
+      };
+      IntervalScale.prototype.setInterval = function (interval) {
+        this._interval = interval;
+        this._isIntervalCustom = true;
+        // Dropped auto calculated niceExtent and use user-set extent.
+        // We assume user wants to set both interval, min, max to get a better result.
+        this._niceExtent = this._extent.slice();
+        this._intervalPrecision = getIntervalPrecision(interval);
+      };
+      /**
+       * @param expandToNicedExtent Whether expand the ticks to niced extent.
+       */
+      IntervalScale.prototype.getTicks = function (expandToNicedExtent) {
+        var interval = this._interval;
+        var extent = this._extent;
+        var niceTickExtent = this._niceExtent;
+        var intervalPrecision = this._intervalPrecision;
+        var ticks = [];
+        // If interval is 0, return [];
+        if (!interval) {
+          return ticks;
+        }
+        // Consider this case: using dataZoom toolbox, zoom and zoom.
+        var safeLimit = 10000;
+        if (extent[0] < niceTickExtent[0]) {
+          if (expandToNicedExtent) {
+            ticks.push({
+              value: roundNumber(niceTickExtent[0] - interval, intervalPrecision)
+            });
+          } else {
+            ticks.push({
+              value: extent[0]
+            });
+          }
+        }
+        var tick = niceTickExtent[0];
+        while (tick <= niceTickExtent[1]) {
+          ticks.push({
+            value: tick
+          });
+          // Avoid rounding error
+          tick = roundNumber(tick + interval, intervalPrecision);
+          if (tick === ticks[ticks.length - 1].value) {
+            // Consider out of safe float point, e.g.,
+            // -3711126.9907707 + 2e-10 === -3711126.9907707
+            break;
+          }
+          if (ticks.length > safeLimit) {
+            return [];
+          }
+        }
+        // Consider this case: the last item of ticks is smaller
+        // than niceTickExtent[1] and niceTickExtent[1] === extent[1].
+        var lastNiceTick = ticks.length ? ticks[ticks.length - 1].value : niceTickExtent[1];
+        if (extent[1] > lastNiceTick) {
+          if (expandToNicedExtent) {
+            ticks.push({
+              value: roundNumber(lastNiceTick + interval, intervalPrecision)
+            });
+          } else {
+            ticks.push({
+              value: extent[1]
+            });
+          }
+        }
+        return ticks;
+      };
+      IntervalScale.prototype.getMinorTicks = function (splitNumber) {
+        var ticks = this.getTicks(true);
+        var minorTicks = [];
+        var extent = this.getExtent();
+        for (var i = 1; i < ticks.length; i++) {
+          var nextTick = ticks[i];
+          var prevTick = ticks[i - 1];
+          var count = 0;
+          var minorTicksGroup = [];
+          var interval = nextTick.value - prevTick.value;
+          var minorInterval = interval / splitNumber;
+          while (count < splitNumber - 1) {
+            var minorTick = roundNumber(prevTick.value + (count + 1) * minorInterval);
+            // For the first and last interval. The count may be less than splitNumber.
+            if (minorTick > extent[0] && minorTick < extent[1]) {
+              minorTicksGroup.push(minorTick);
+            }
+            count++;
+          }
+          minorTicks.push(minorTicksGroup);
+        }
+        return minorTicks;
+      };
+      /**
+       * @param opt.precision If 'auto', use nice presision.
+       * @param opt.pad returns 1.50 but not 1.5 if precision is 2.
+       */
+      IntervalScale.prototype.getLabel = function (data, opt) {
+        if (data == null) {
+          return '';
+        }
+        var precision = opt && opt.precision;
+        if (precision == null) {
+          precision = getPrecision(data.value) || 0;
+        } else if (precision === 'auto') {
+          // Should be more precise then tick.
+          precision = this._intervalPrecision;
+        }
+        // (1) If `precision` is set, 12.005 should be display as '12.00500'.
+        // (2) Use roundNumber (toFixed) to avoid scientific notation like '3.5e-7'.
+        var dataNum = roundNumber(data.value, precision, true);
+        return addCommas(dataNum);
+      };
+      /**
+       * @param splitNumber By default `5`.
+       */
+      IntervalScale.prototype.calcNiceTicks = function (splitNumber, minInterval, maxInterval) {
+        splitNumber = splitNumber || SPLIT_NUMBER_DEFAULT;
+        var extent = this._extent;
+        var span = extent[1] - extent[0];
+        if (!isFinite(span)) {
+          return;
+        }
+        // User may set axis min 0 and data are all negative
+        // FIXME If it needs to reverse ?
+        if (span < 0) {
+          span = -span;
+          extent.reverse();
+        }
+        var result = intervalScaleNiceTicks(extent, splitNumber, minInterval, maxInterval);
+        this._intervalPrecision = result.intervalPrecision;
+        this._interval = result.interval;
+        this._niceExtent = result.niceTickExtent;
+      };
+      IntervalScale.prototype.calcNiceExtent = function (opt) {
+        var extent = this._extent;
+        // If extent start and end are same, expand them
+        if (extent[0] === extent[1]) {
+          if (extent[0] !== 0) {
+            // Expand extent
+            // Note that extents can be both negative. See #13154
+            var expandSize = Math.abs(extent[0]);
+            // In the fowllowing case
+            //      Axis has been fixed max 100
+            //      Plus data are all 100 and axis extent are [100, 100].
+            // Extend to the both side will cause expanded max is larger than fixed max.
+            // So only expand to the smaller side.
+            if (!opt.fixMax) {
+              extent[1] += expandSize / 2;
+              extent[0] -= expandSize / 2;
+            } else {
+              extent[0] -= expandSize / 2;
+            }
+          } else {
+            extent[1] = 1;
+          }
+        }
+        var span = extent[1] - extent[0];
+        // If there are no data and extent are [Infinity, -Infinity]
+        if (!isFinite(span)) {
+          extent[0] = 0;
+          extent[1] = 1;
+        }
+        this.calcNiceTicks(opt.splitNumber, opt.minInterval, opt.maxInterval);
+        // let extent = this._extent;
+        var interval = this._interval;
+        if (!opt.fixMin) {
+          extent[0] = roundNumber(Math.floor(extent[0] / interval) * interval);
+        }
+        if (!opt.fixMax) {
+          extent[1] = roundNumber(Math.ceil(extent[1] / interval) * interval);
+        }
+      };
+      IntervalScale.prototype.setNiceExtent = function (min, max) {
+        this._niceExtent = [min, max];
+      };
+      IntervalScale.type = 'interval';
+      return IntervalScale;
+    }(Scale);
+    Scale.registerClass(IntervalScale);
+
+    var roundNumber$1 = round;
+    // FIXME 公用？
+    var bisect = function (a, x, lo, hi) {
+      while (lo < hi) {
+        var mid = lo + hi >>> 1;
+        if (a[mid][1] < x) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
+      }
+      return lo;
+    };
+    var TimeScale = /** @class */function (_super) {
+      __extends(TimeScale, _super);
+      function TimeScale(settings) {
+        var _this = _super.call(this, settings) || this;
+        _this.type = 'time';
+        return _this;
+      }
+      /**
+       * Get label is mainly for other components like dataZoom, tooltip.
+       */
+      TimeScale.prototype.getLabel = function (tick) {
+        var useUTC = this.getSetting('useUTC');
+        return format(tick.value, fullLeveledFormatter[getDefaultFormatPrecisionOfInterval(getPrimaryTimeUnit(this._minLevelUnit))] || fullLeveledFormatter.second, useUTC, this.getSetting('locale'));
+      };
+      TimeScale.prototype.getFormattedLabel = function (tick, idx, labelFormatter) {
+        var isUTC = this.getSetting('useUTC');
+        var lang = this.getSetting('locale');
+        return leveledFormat(tick, idx, labelFormatter, lang, isUTC);
+      };
+      /**
+       * @override
+       */
+      // onlyMaxLevel is used in minor ticks for filtering
+      TimeScale.prototype.getTicks = function (expandToNicedExtent, onlyMaxLevel) {
+        var interval = this._interval;
+        var extent = this._extent;
+        var ticks = [];
+        // If interval is 0, return [];
+        if (!interval) {
+          return ticks;
+        }
+        ticks.push({
+          value: extent[0],
+          level: 0
+        });
+        var useUTC = this.getSetting('useUTC');
+        var innerTicks = getIntervalTicks(this._minLevelUnit, this._approxInterval, this._isIntervalCustom ? interval : null, useUTC, extent, onlyMaxLevel);
+        ticks = ticks.concat(innerTicks);
+        ticks.push({
+          value: extent[1],
+          level: 0
+        });
+        return ticks;
+      };
+      TimeScale.prototype.getMinorTicks = function () {
+        var ticks = this.getTicks(true, true);
+        var minorTicks = [];
+        var extent = this.getExtent();
+        var dominantMinorInterval = this.getDominantMinorInterval(ticks);
+        for (var i = 1; i < ticks.length; i++) {
+          var nextTick = ticks[i];
+          var prevTick = ticks[i - 1];
+          var count = 0;
+          var minorTicksGroup = [];
+          var interval = nextTick.value - prevTick.value;
+          var splitNumber = Math.round(interval / dominantMinorInterval);
+          while (count < splitNumber - 1) {
+            var minorTick = roundNumber$1(prevTick.value + (count + 1) * dominantMinorInterval);
+            // For the first and last interval. The count may be less than splitNumber.
+            if (minorTick > extent[0] && minorTick < extent[1]) {
+              minorTicksGroup.push(minorTick);
+            }
+            count++;
+          }
+          minorTicks.push(minorTicksGroup);
+        }
+        return minorTicks;
+      };
+      TimeScale.prototype.getDominantMinorInterval = function (ticks) {
+        var intervalStats = {};
+        var dominantInterval = null;
+        var maxCount = 0;
+        for (var i = 1; i < ticks.length; i++) {
+          var interval = ticks[i].value - ticks[i - 1].value;
+          var count = (intervalStats[interval] || 0) + 1;
+          intervalStats[interval] = count;
+          if (count > maxCount && interval > 0) {
+            maxCount = count;
+            dominantInterval = interval;
+          }
+        }
+        var dominantSplits = this.getMinorSplits(dominantInterval);
+        var dominantSplitNumber = dominantSplits > 10 ? Math.ceil(dominantSplits / 2) : dominantSplits;
+        return dominantInterval / dominantSplitNumber;
+      };
+      TimeScale.prototype.getMinorSplits = function (interval) {
+        if (interval <= 0) {
+          return 0;
+        }
+        var unit = getUnitByInterval(interval);
+        var unitMap = {
+          'second': ONE_SECOND,
+          'minute': ONE_MINUTE,
+          'hour': ONE_HOUR,
+          'half-day': ONE_HOUR,
+          'quarter-day': ONE_HOUR,
+          'day': ONE_DAY,
+          'half-week': ONE_DAY,
+          'week': ONE_DAY,
+          'month': ONE_DAY,
+          'quarter': ONE_MONTH,
+          'half-year': ONE_MONTH,
+          'year': ONE_LEAP_YEAR
+        };
+        var getSplit = function (period) {
+          return Math.ceil(interval / period);
+        };
+        return unit in unitMap ? getSplit(unitMap[unit]) : SPLIT_NUMBER_DEFAULT;
+      };
+      TimeScale.prototype.calcNiceExtent = function (opt) {
+        var extent = this._extent;
+        // If extent start and end are same, expand them
+        if (extent[0] === extent[1]) {
+          // Expand extent
+          extent[0] -= ONE_DAY;
+          extent[1] += ONE_DAY;
+        }
+        // If there are no data and extent are [Infinity, -Infinity]
+        if (extent[1] === -Infinity && extent[0] === Infinity) {
+          var d = new Date();
+          extent[1] = +new Date(d.getFullYear(), d.getMonth(), d.getDate());
+          extent[0] = extent[1] - ONE_DAY;
+        }
+        this.calcNiceTicks(opt.splitNumber, opt.minInterval, opt.maxInterval);
+      };
+      TimeScale.prototype.calcNiceTicks = function (approxTickNum, minInterval, maxInterval) {
+        approxTickNum = approxTickNum || 10;
+        var extent = this._extent;
+        var span = extent[1] - extent[0];
+        this._approxInterval = span / approxTickNum;
+        if (minInterval != null && this._approxInterval < minInterval) {
+          this._approxInterval = minInterval;
+        }
+        if (maxInterval != null && this._approxInterval > maxInterval) {
+          this._approxInterval = maxInterval;
+        }
+        var idx = getIndexByInterval(this._approxInterval);
+        // Interval that can be used to calculate ticks
+        this._interval = scaleIntervals[idx][1];
+        // Min level used when picking ticks from top down.
+        // We check one more level to avoid the ticks are to sparse in some case.
+        this._minLevelUnit = scaleIntervals[Math.max(idx - 1, 0)][0];
+      };
+      TimeScale.prototype.parse = function (val) {
+        // val might be float.
+        return isNumber(val) ? val : +parseDate(val);
+      };
+      TimeScale.prototype.contain = function (val) {
+        return contain$1(this.parse(val), this._extent);
+      };
+      TimeScale.prototype.normalize = function (val) {
+        return normalize$1(this.parse(val), this._extent);
+      };
+      TimeScale.prototype.scale = function (val) {
+        return scale$2(val, this._extent);
+      };
+      TimeScale.type = 'time';
+      return TimeScale;
+    }(IntervalScale);
+    function isUnitValueSame(unit, valueA, valueB, isUTC) {
+      var dateA = parseDate(valueA);
+      var dateB = parseDate(valueB);
+      var isSame = function (unit) {
+        return getUnitValue(dateA, unit, isUTC) === getUnitValue(dateB, unit, isUTC);
+      };
+      var isSameYear = function () {
+        return isSame('year');
+      };
+      // const isSameHalfYear = () => isSameYear() && isSame('half-year');
+      // const isSameQuater = () => isSameYear() && isSame('quarter');
+      var isSameMonth = function () {
+        return isSameYear() && isSame('month');
+      };
+      var isSameDay = function () {
+        return isSameMonth() && isSame('day');
+      };
+      // const isSameHalfDay = () => isSameDay() && isSame('half-day');
+      var isSameHour = function () {
+        return isSameDay() && isSame('hour');
+      };
+      var isSameMinute = function () {
+        return isSameHour() && isSame('minute');
+      };
+      var isSameSecond = function () {
+        return isSameMinute() && isSame('second');
+      };
+      var isSameMilliSecond = function () {
+        return isSameSecond() && isSame('millisecond');
+      };
+      switch (unit) {
+        case 'year':
+          return isSameYear();
+        case 'month':
+          return isSameMonth();
+        case 'day':
+          return isSameDay();
+        case 'hour':
+          return isSameHour();
+        case 'minute':
+          return isSameMinute();
+        case 'second':
+          return isSameSecond();
+        case 'millisecond':
+          return isSameMilliSecond();
+      }
+    }
+    // const primaryUnitGetters = {
+    //     year: fullYearGetterName(),
+    //     month: monthGetterName(),
+    //     day: dateGetterName(),
+    //     hour: hoursGetterName(),
+    //     minute: minutesGetterName(),
+    //     second: secondsGetterName(),
+    //     millisecond: millisecondsGetterName()
+    // };
+    // const primaryUnitUTCGetters = {
+    //     year: fullYearGetterName(true),
+    //     month: monthGetterName(true),
+    //     day: dateGetterName(true),
+    //     hour: hoursGetterName(true),
+    //     minute: minutesGetterName(true),
+    //     second: secondsGetterName(true),
+    //     millisecond: millisecondsGetterName(true)
+    // };
+    // function moveTick(date: Date, unitName: TimeUnit, step: number, isUTC: boolean) {
+    //     step = step || 1;
+    //     switch (getPrimaryTimeUnit(unitName)) {
+    //         case 'year':
+    //             date[fullYearSetterName(isUTC)](date[fullYearGetterName(isUTC)]() + step);
+    //             break;
+    //         case 'month':
+    //             date[monthSetterName(isUTC)](date[monthGetterName(isUTC)]() + step);
+    //             break;
+    //         case 'day':
+    //             date[dateSetterName(isUTC)](date[dateGetterName(isUTC)]() + step);
+    //             break;
+    //         case 'hour':
+    //             date[hoursSetterName(isUTC)](date[hoursGetterName(isUTC)]() + step);
+    //             break;
+    //         case 'minute':
+    //             date[minutesSetterName(isUTC)](date[minutesGetterName(isUTC)]() + step);
+    //             break;
+    //         case 'second':
+    //             date[secondsSetterName(isUTC)](date[secondsGetterName(isUTC)]() + step);
+    //             break;
+    //         case 'millisecond':
+    //             date[millisecondsSetterName(isUTC)](date[millisecondsGetterName(isUTC)]() + step);
+    //             break;
+    //     }
+    //     return date.getTime();
+    // }
+    // const DATE_INTERVALS = [[8, 7.5], [4, 3.5], [2, 1.5]];
+    // const MONTH_INTERVALS = [[6, 5.5], [3, 2.5], [2, 1.5]];
+    // const MINUTES_SECONDS_INTERVALS = [[30, 30], [20, 20], [15, 15], [10, 10], [5, 5], [2, 2]];
+    function getDateInterval(approxInterval, daysInMonth) {
+      approxInterval /= ONE_DAY;
+      return approxInterval > 16 ? 16
+      // Math.floor(daysInMonth / 2) + 1  // In this case we only want one tick between two months.
+      : approxInterval > 7.5 ? 7 // TODO week 7 or day 8?
+      : approxInterval > 3.5 ? 4 : approxInterval > 1.5 ? 2 : 1;
+    }
+    function getMonthInterval(approxInterval) {
+      var APPROX_ONE_MONTH = 30 * ONE_DAY;
+      approxInterval /= APPROX_ONE_MONTH;
+      return approxInterval > 6 ? 6 : approxInterval > 3 ? 3 : approxInterval > 2 ? 2 : 1;
+    }
+    function getHourInterval(approxInterval) {
+      approxInterval /= ONE_HOUR;
+      return approxInterval > 12 ? 12 : approxInterval > 6 ? 6 : approxInterval > 3.5 ? 4 : approxInterval > 2 ? 2 : 1;
+    }
+    function getMinutesAndSecondsInterval(approxInterval, isMinutes) {
+      approxInterval /= isMinutes ? ONE_MINUTE : ONE_SECOND;
+      return approxInterval > 30 ? 30 : approxInterval > 20 ? 20 : approxInterval > 15 ? 15 : approxInterval > 10 ? 10 : approxInterval > 5 ? 5 : approxInterval > 2 ? 2 : 1;
+    }
+    function getMillisecondsInterval(approxInterval) {
+      return nice(approxInterval, true);
+    }
+    function getFirstTimestampOfUnit(date, unitName, isUTC) {
+      var outDate = new Date(date);
+      switch (getPrimaryTimeUnit(unitName)) {
+        case 'year':
+        case 'month':
+          outDate[monthSetterName(isUTC)](0);
+        case 'day':
+          outDate[dateSetterName(isUTC)](1);
+        case 'hour':
+          outDate[hoursSetterName(isUTC)](0);
+        case 'minute':
+          outDate[minutesSetterName(isUTC)](0);
+        case 'second':
+          outDate[secondsSetterName(isUTC)](0);
+          outDate[millisecondsSetterName(isUTC)](0);
+      }
+      return outDate.getTime();
+    }
+    function getIntervalTicks(bottomUnitName, approxInterval, customInterval, isUTC, extent, onlyMaxLevel) {
+      var safeLimit = 10000;
+      var unitNames = timeUnits;
+      var iter = 0;
+      function addTicksInSpan(interval, minTimestamp, maxTimestamp, getMethodName, setMethodName, isDate, out) {
+        var date = new Date(minTimestamp);
+        var dateTime = minTimestamp;
+        var d = date[getMethodName]();
+        // if (isDate) {
+        //     d -= 1; // Starts with 0;   PENDING
+        // }
+        while (dateTime < maxTimestamp && dateTime <= extent[1]) {
+          out.push({
+            value: dateTime
+          });
+          d += interval;
+          date[setMethodName](d);
+          dateTime = date.getTime();
+        }
+        // This extra tick is for calcuating ticks of next level. Will not been added to the final result
+        out.push({
+          value: dateTime,
+          // The notAdd field has been replaced with startDate so that the countdown does not start over with
+          // the start of a new higher level unit
+          // notAdd: true,
+          startDate: true
+        });
+      }
+      function getCustomInterval(divisor) {
+        if (divisor === void 0) {
+          divisor = 1;
+        }
+        return customInterval ? customInterval / divisor : null;
+      }
+      function addLevelTicks(unitName, lastLevelTicks, levelTicks) {
+        var _a, _b, _c, _d, _e, _f, _g, _h;
+        var newAddedTicks = [];
+        var isFirstLevel = !lastLevelTicks.length;
+        if (isUnitValueSame(getPrimaryTimeUnit(unitName), extent[0], extent[1], isUTC)) {
+          return;
+        }
+        if (isFirstLevel) {
+          lastLevelTicks = [{
+            // TODO Optimize. Not include so may ticks.
+            value: getFirstTimestampOfUnit(new Date(extent[0]), unitName, isUTC)
+          }, {
+            value: extent[1]
+          }];
+        }
+        for (var i = 0; i < lastLevelTicks.length - 1; i++) {
+          var startTick = lastLevelTicks[i].value;
+          var endTick = lastLevelTicks[i + 1].value > extent[1] ? extent[1] : lastLevelTicks[i + 1].value;
+          if (startTick === endTick) {
+            continue;
+          }
+          var interval = void 0;
+          var getterName = void 0;
+          var setterName = void 0;
+          var isDate = false;
+          switch (unitName) {
+            case 'year':
+              interval = Math.max(1, Math.round(approxInterval / ONE_DAY / 365));
+              getterName = fullYearGetterName(isUTC);
+              setterName = fullYearSetterName(isUTC);
+              break;
+            case 'half-year':
+            case 'quarter':
+            case 'month':
+              interval = (_a = getCustomInterval(30 * ONE_DAY)) !== null && _a !== void 0 ? _a : getMonthInterval(approxInterval);
+              getterName = monthGetterName(isUTC);
+              setterName = monthSetterName(isUTC);
+              break;
+            case 'week': // PENDING If week is added. Ignore day.
+            case 'half-week':
+            case 'day':
+              interval = (_b = getCustomInterval(ONE_DAY)) !== null && _b !== void 0 ? _b : getDateInterval(approxInterval); // Use 32 days and let interval been 16
+              getterName = dateGetterName(isUTC);
+              setterName = dateSetterName(isUTC);
+              isDate = true;
+              break;
+            case 'half-day':
+            case 'quarter-day':
+            case 'hour':
+              interval = (_c = getCustomInterval(ONE_HOUR)) !== null && _c !== void 0 ? _c : getHourInterval(approxInterval);
+              getterName = hoursGetterName(isUTC);
+              setterName = hoursSetterName(isUTC);
+              break;
+            case 'minute':
+              interval = (_d = getCustomInterval(ONE_MINUTE)) !== null && _d !== void 0 ? _d : getMinutesAndSecondsInterval(approxInterval, true);
+              getterName = minutesGetterName(isUTC);
+              setterName = minutesSetterName(isUTC);
+              break;
+            case 'second':
+              interval = (_e = getCustomInterval(ONE_SECOND)) !== null && _e !== void 0 ? _e : getMinutesAndSecondsInterval(approxInterval, false);
+              getterName = secondsGetterName(isUTC);
+              setterName = secondsSetterName(isUTC);
+              break;
+            case 'millisecond':
+              interval = (_f = getCustomInterval()) !== null && _f !== void 0 ? _f : getMillisecondsInterval(approxInterval);
+              getterName = millisecondsGetterName(isUTC);
+              setterName = millisecondsSetterName(isUTC);
+              break;
+          }
+          var noAddedTicks = newAddedTicks.filter(function (tick) {
+            return tick.startDate === true;
+          }).map(function (tick) {
+            return tick.value;
+          });
+          var newStartTick = (_h = (_g = noAddedTicks.slice(-1)) === null || _g === void 0 ? void 0 : _g[0]) !== null && _h !== void 0 ? _h : startTick;
+          addTicksInSpan(interval, newStartTick, endTick, getterName, setterName, isDate, newAddedTicks);
+          if (unitName === 'year' && levelTicks.length > 1 && i === 0) {
+            // Add nearest years to the left extent.
+            levelTicks.unshift({
+              value: levelTicks[0].value - interval
+            });
+          }
+        }
+        for (var i = 0; i < newAddedTicks.length; i++) {
+          levelTicks.push(newAddedTicks[i]);
+        }
+        // newAddedTicks.length && console.log(unitName, newAddedTicks);
+        return newAddedTicks;
+      }
+      var levelsTicks = [];
+      var currentLevelTicks = [];
+      var tickCount = 0;
+      var lastLevelTickCount = 0;
+      for (var i = 0; i < unitNames.length && iter++ < safeLimit; ++i) {
+        var primaryTimeUnit = getPrimaryTimeUnit(unitNames[i]);
+        if (!isPrimaryTimeUnit(unitNames[i])) {
+          // TODO
+          continue;
+        }
+        addLevelTicks(unitNames[i], levelsTicks[levelsTicks.length - 1] || [], currentLevelTicks);
+        var nextPrimaryTimeUnit = unitNames[i + 1] ? getPrimaryTimeUnit(unitNames[i + 1]) : null;
+        if (primaryTimeUnit !== nextPrimaryTimeUnit) {
+          if (currentLevelTicks.length) {
+            lastLevelTickCount = tickCount;
+            // Remove the duplicate so the tick count can be precisely.
+            currentLevelTicks.sort(function (a, b) {
+              return a.value - b.value;
+            });
+            var levelTicksRemoveDuplicated = [];
+            for (var i_1 = 0; i_1 < currentLevelTicks.length; ++i_1) {
+              var tickValue = currentLevelTicks[i_1].value;
+              if (i_1 === 0 || currentLevelTicks[i_1 - 1].value !== tickValue) {
+                levelTicksRemoveDuplicated.push(currentLevelTicks[i_1]);
+                if (tickValue >= extent[0] && tickValue <= extent[1]) {
+                  tickCount++;
+                }
+              }
+            }
+            var targetTickNum = (extent[1] - extent[0]) / approxInterval;
+            // Added too much in this level and not too less in last level
+            if (tickCount > targetTickNum * 1.5 && lastLevelTickCount > targetTickNum / 1.5) {
+              break;
+            }
+            // Only treat primary time unit as one level.
+            levelsTicks.push(levelTicksRemoveDuplicated);
+            if (tickCount > targetTickNum || bottomUnitName === unitNames[i]) {
+              break;
+            }
+          }
+          // Reset if next unitName is primary
+          currentLevelTicks = [];
+        }
+      }
+      if ("development" !== 'production') {
+        if (iter >= safeLimit) {
+          warn('Exceed safe limit.');
+        }
+      }
+      var levelsTicksInExtent = filter(map(levelsTicks, function (levelTicks) {
+        return filter(levelTicks, function (tick) {
+          return tick.value >= extent[0] && tick.value <= extent[1];
+        });
+      }), function (levelTicks) {
+        return levelTicks.length > 0;
+      });
+      var ticks = [];
+      var maxLevel = levelsTicksInExtent.length - 1;
+      if (onlyMaxLevel) {
+        var levelTicks = levelsTicksInExtent[maxLevel];
+        ticks = getLevelTicks(levelTicks);
+      } else {
+        for (var i = 0; i < levelsTicksInExtent.length; ++i) {
+          var levelTicks = levelsTicksInExtent[i];
+          ticks.push.apply(ticks, getLevelTicks(levelTicks, i));
+        }
+      }
+      function getLevelTicks(levelTicks, level) {
+        if (level === void 0) {
+          level = 0;
+        }
+        var ticks = [];
+        for (var k = 0; k < levelTicks.length; ++k) {
+          ticks.push({
+            value: levelTicks[k].value,
+            level: maxLevel - level
+          });
+        }
+        return ticks;
+      }
+      ticks.sort(function (a, b) {
+        return a.value - b.value;
+      });
+      // Remove duplicates
+      var result = [];
+      for (var i = 0; i < ticks.length; ++i) {
+        if (i === 0 || ticks[i].value !== ticks[i - 1].value) {
+          result.push(ticks[i]);
+        }
+      }
+      return result;
+    }
+    Scale.registerClass(TimeScale);
+
     var ONE_SECOND = 1000;
     var ONE_MINUTE = ONE_SECOND * 60;
     var ONE_HOUR = ONE_MINUTE * 60;
     var ONE_DAY = ONE_HOUR * 24;
+    var ONE_MONTH = ONE_DAY * 31;
     var ONE_YEAR = ONE_DAY * 365;
+    var ONE_LEAP_YEAR = ONE_DAY * 366;
     var defaultLeveledFormatter = {
       year: '{yyyy}',
       month: '{MMM}',
@@ -16220,6 +17127,22 @@
       millisecond: '{HH}:{mm}:{ss} {SSS}',
       none: '{yyyy}-{MM}-{dd} {HH}:{mm}:{ss} {SSS}'
     };
+    /**
+     * This implementation was originally copied from "d3.js"
+     * <https://github.com/d3/d3/blob/b516d77fb8566b576088e73410437494717ada26/src/time/scale.js>
+     * with some modifications made for this program.
+     * See the license statement at the head of this file.
+     */
+    var scaleIntervals = [
+    // Format                           interval
+    ['second', ONE_SECOND], ['minute', ONE_MINUTE], ['hour', ONE_HOUR], ['quarter-day', ONE_HOUR * 6], ['half-day', ONE_HOUR * 12], ['day', ONE_DAY * 1.2], ['half-week', ONE_DAY * 3.5], ['week', ONE_DAY * 7], ['month', ONE_DAY * 31], ['quarter', ONE_DAY * 95], ['half-year', ONE_YEAR / 2], ['year', ONE_YEAR] // 1Y
+    ];
+    function getIndexByInterval(interval) {
+      return Math.min(bisect(scaleIntervals, interval, 0, scaleIntervals.length), scaleIntervals.length - 1);
+    }
+    function getUnitByInterval(interval) {
+      return scaleIntervals[Math.max(getIndexByInterval(interval), 0)][0];
+    }
     var fullDayFormatter = '{yyyy}-{MM}-{dd}';
     var fullLeveledFormatter = {
       year: '{yyyy}',
@@ -30753,74 +31676,6 @@
       return arr[i];
     }
 
-    var Scale = /** @class */function () {
-      function Scale(setting) {
-        this._setting = setting || {};
-        this._extent = [Infinity, -Infinity];
-      }
-      Scale.prototype.getSetting = function (name) {
-        return this._setting[name];
-      };
-      /**
-       * Set extent from data
-       */
-      Scale.prototype.unionExtent = function (other) {
-        var extent = this._extent;
-        other[0] < extent[0] && (extent[0] = other[0]);
-        other[1] > extent[1] && (extent[1] = other[1]);
-        // not setExtent because in log axis it may transformed to power
-        // this.setExtent(extent[0], extent[1]);
-      };
-      /**
-       * Set extent from data
-       */
-      Scale.prototype.unionExtentFromData = function (data, dim) {
-        this.unionExtent(data.getApproximateExtent(dim));
-      };
-      /**
-       * Get extent
-       *
-       * Extent is always in increase order.
-       */
-      Scale.prototype.getExtent = function () {
-        return this._extent.slice();
-      };
-      /**
-       * Set extent
-       */
-      Scale.prototype.setExtent = function (start, end) {
-        var thisExtent = this._extent;
-        if (!isNaN(start)) {
-          thisExtent[0] = start;
-        }
-        if (!isNaN(end)) {
-          thisExtent[1] = end;
-        }
-      };
-      /**
-       * If value is in extent range
-       */
-      Scale.prototype.isInExtentRange = function (value) {
-        return this._extent[0] <= value && this._extent[1] >= value;
-      };
-      /**
-       * When axis extent depends on data and no data exists,
-       * axis ticks should not be drawn, which is named 'blank'.
-       */
-      Scale.prototype.isBlank = function () {
-        return this._isBlank;
-      };
-      /**
-       * When axis extent depends on data and no data exists,
-       * axis ticks should not be drawn, which is named 'blank'.
-       */
-      Scale.prototype.setBlank = function (isBlank) {
-        this._isBlank = isBlank;
-      };
-      return Scale;
-    }();
-    enableClassManagement(Scale);
-
     var uidBase = 0;
     var OrdinalMeta = /** @class */function () {
       function OrdinalMeta(opt) {
@@ -30898,85 +31753,6 @@
       } else {
         return obj + '';
       }
-    }
-
-    function isValueNice(val) {
-      var exp10 = Math.pow(10, quantityExponent(Math.abs(val)));
-      var f = Math.abs(val / exp10);
-      return f === 0 || f === 1 || f === 2 || f === 3 || f === 5;
-    }
-    function isIntervalOrLogScale(scale) {
-      return scale.type === 'interval' || scale.type === 'log';
-    }
-    /**
-     * @param extent Both extent[0] and extent[1] should be valid number.
-     *               Should be extent[0] < extent[1].
-     * @param splitNumber splitNumber should be >= 1.
-     */
-    function intervalScaleNiceTicks(extent, splitNumber, minInterval, maxInterval) {
-      var result = {};
-      var span = extent[1] - extent[0];
-      var interval = result.interval = nice(span / splitNumber, true);
-      if (minInterval != null && interval < minInterval) {
-        interval = result.interval = minInterval;
-      }
-      if (maxInterval != null && interval > maxInterval) {
-        interval = result.interval = maxInterval;
-      }
-      // Tow more digital for tick.
-      var precision = result.intervalPrecision = getIntervalPrecision(interval);
-      // Niced extent inside original extent
-      var niceTickExtent = result.niceTickExtent = [round(Math.ceil(extent[0] / interval) * interval, precision), round(Math.floor(extent[1] / interval) * interval, precision)];
-      fixExtent(niceTickExtent, extent);
-      return result;
-    }
-    function increaseInterval(interval) {
-      var exp10 = Math.pow(10, quantityExponent(interval));
-      // Increase interval
-      var f = interval / exp10;
-      if (!f) {
-        f = 1;
-      } else if (f === 2) {
-        f = 3;
-      } else if (f === 3) {
-        f = 5;
-      } else {
-        // f is 1 or 5
-        f *= 2;
-      }
-      return round(f * exp10);
-    }
-    /**
-     * @return interval precision
-     */
-    function getIntervalPrecision(interval) {
-      // Tow more digital for tick.
-      return getPrecision(interval) + 2;
-    }
-    function clamp(niceTickExtent, idx, extent) {
-      niceTickExtent[idx] = Math.max(Math.min(niceTickExtent[idx], extent[1]), extent[0]);
-    }
-    // In some cases (e.g., splitNumber is 1), niceTickExtent may be out of extent.
-    function fixExtent(niceTickExtent, extent) {
-      !isFinite(niceTickExtent[0]) && (niceTickExtent[0] = extent[0]);
-      !isFinite(niceTickExtent[1]) && (niceTickExtent[1] = extent[1]);
-      clamp(niceTickExtent, 0, extent);
-      clamp(niceTickExtent, 1, extent);
-      if (niceTickExtent[0] > niceTickExtent[1]) {
-        niceTickExtent[0] = niceTickExtent[1];
-      }
-    }
-    function contain$1(val, extent) {
-      return val >= extent[0] && val <= extent[1];
-    }
-    function normalize$1(val, extent) {
-      if (extent[1] === extent[0]) {
-        return 0.5;
-      }
-      return (val - extent[0]) / (extent[1] - extent[0]);
-    }
-    function scale$2(val, extent) {
-      return val * (extent[1] - extent[0]) + extent[0];
     }
 
     var OrdinalScale = /** @class */function (_super) {
@@ -31138,225 +31914,6 @@
       return OrdinalScale;
     }(Scale);
     Scale.registerClass(OrdinalScale);
-
-    var roundNumber = round;
-    var IntervalScale = /** @class */function (_super) {
-      __extends(IntervalScale, _super);
-      function IntervalScale() {
-        var _this = _super !== null && _super.apply(this, arguments) || this;
-        _this.type = 'interval';
-        // Step is calculated in adjustExtent.
-        _this._interval = 0;
-        _this._intervalPrecision = 2;
-        return _this;
-      }
-      IntervalScale.prototype.parse = function (val) {
-        return val;
-      };
-      IntervalScale.prototype.contain = function (val) {
-        return contain$1(val, this._extent);
-      };
-      IntervalScale.prototype.normalize = function (val) {
-        return normalize$1(val, this._extent);
-      };
-      IntervalScale.prototype.scale = function (val) {
-        return scale$2(val, this._extent);
-      };
-      IntervalScale.prototype.setExtent = function (start, end) {
-        var thisExtent = this._extent;
-        // start,end may be a Number like '25',so...
-        if (!isNaN(start)) {
-          thisExtent[0] = parseFloat(start);
-        }
-        if (!isNaN(end)) {
-          thisExtent[1] = parseFloat(end);
-        }
-      };
-      IntervalScale.prototype.unionExtent = function (other) {
-        var extent = this._extent;
-        other[0] < extent[0] && (extent[0] = other[0]);
-        other[1] > extent[1] && (extent[1] = other[1]);
-        // unionExtent may called by it's sub classes
-        this.setExtent(extent[0], extent[1]);
-      };
-      IntervalScale.prototype.getInterval = function () {
-        return this._interval;
-      };
-      IntervalScale.prototype.setInterval = function (interval) {
-        this._interval = interval;
-        // Dropped auto calculated niceExtent and use user-set extent.
-        // We assume user wants to set both interval, min, max to get a better result.
-        this._niceExtent = this._extent.slice();
-        this._intervalPrecision = getIntervalPrecision(interval);
-      };
-      /**
-       * @param expandToNicedExtent Whether expand the ticks to niced extent.
-       */
-      IntervalScale.prototype.getTicks = function (expandToNicedExtent) {
-        var interval = this._interval;
-        var extent = this._extent;
-        var niceTickExtent = this._niceExtent;
-        var intervalPrecision = this._intervalPrecision;
-        var ticks = [];
-        // If interval is 0, return [];
-        if (!interval) {
-          return ticks;
-        }
-        // Consider this case: using dataZoom toolbox, zoom and zoom.
-        var safeLimit = 10000;
-        if (extent[0] < niceTickExtent[0]) {
-          if (expandToNicedExtent) {
-            ticks.push({
-              value: roundNumber(niceTickExtent[0] - interval, intervalPrecision)
-            });
-          } else {
-            ticks.push({
-              value: extent[0]
-            });
-          }
-        }
-        var tick = niceTickExtent[0];
-        while (tick <= niceTickExtent[1]) {
-          ticks.push({
-            value: tick
-          });
-          // Avoid rounding error
-          tick = roundNumber(tick + interval, intervalPrecision);
-          if (tick === ticks[ticks.length - 1].value) {
-            // Consider out of safe float point, e.g.,
-            // -3711126.9907707 + 2e-10 === -3711126.9907707
-            break;
-          }
-          if (ticks.length > safeLimit) {
-            return [];
-          }
-        }
-        // Consider this case: the last item of ticks is smaller
-        // than niceTickExtent[1] and niceTickExtent[1] === extent[1].
-        var lastNiceTick = ticks.length ? ticks[ticks.length - 1].value : niceTickExtent[1];
-        if (extent[1] > lastNiceTick) {
-          if (expandToNicedExtent) {
-            ticks.push({
-              value: roundNumber(lastNiceTick + interval, intervalPrecision)
-            });
-          } else {
-            ticks.push({
-              value: extent[1]
-            });
-          }
-        }
-        return ticks;
-      };
-      IntervalScale.prototype.getMinorTicks = function (splitNumber) {
-        var ticks = this.getTicks(true);
-        var minorTicks = [];
-        var extent = this.getExtent();
-        for (var i = 1; i < ticks.length; i++) {
-          var nextTick = ticks[i];
-          var prevTick = ticks[i - 1];
-          var count = 0;
-          var minorTicksGroup = [];
-          var interval = nextTick.value - prevTick.value;
-          var minorInterval = interval / splitNumber;
-          while (count < splitNumber - 1) {
-            var minorTick = roundNumber(prevTick.value + (count + 1) * minorInterval);
-            // For the first and last interval. The count may be less than splitNumber.
-            if (minorTick > extent[0] && minorTick < extent[1]) {
-              minorTicksGroup.push(minorTick);
-            }
-            count++;
-          }
-          minorTicks.push(minorTicksGroup);
-        }
-        return minorTicks;
-      };
-      /**
-       * @param opt.precision If 'auto', use nice presision.
-       * @param opt.pad returns 1.50 but not 1.5 if precision is 2.
-       */
-      IntervalScale.prototype.getLabel = function (data, opt) {
-        if (data == null) {
-          return '';
-        }
-        var precision = opt && opt.precision;
-        if (precision == null) {
-          precision = getPrecision(data.value) || 0;
-        } else if (precision === 'auto') {
-          // Should be more precise then tick.
-          precision = this._intervalPrecision;
-        }
-        // (1) If `precision` is set, 12.005 should be display as '12.00500'.
-        // (2) Use roundNumber (toFixed) to avoid scientific notation like '3.5e-7'.
-        var dataNum = roundNumber(data.value, precision, true);
-        return addCommas(dataNum);
-      };
-      /**
-       * @param splitNumber By default `5`.
-       */
-      IntervalScale.prototype.calcNiceTicks = function (splitNumber, minInterval, maxInterval) {
-        splitNumber = splitNumber || 5;
-        var extent = this._extent;
-        var span = extent[1] - extent[0];
-        if (!isFinite(span)) {
-          return;
-        }
-        // User may set axis min 0 and data are all negative
-        // FIXME If it needs to reverse ?
-        if (span < 0) {
-          span = -span;
-          extent.reverse();
-        }
-        var result = intervalScaleNiceTicks(extent, splitNumber, minInterval, maxInterval);
-        this._intervalPrecision = result.intervalPrecision;
-        this._interval = result.interval;
-        this._niceExtent = result.niceTickExtent;
-      };
-      IntervalScale.prototype.calcNiceExtent = function (opt) {
-        var extent = this._extent;
-        // If extent start and end are same, expand them
-        if (extent[0] === extent[1]) {
-          if (extent[0] !== 0) {
-            // Expand extent
-            // Note that extents can be both negative. See #13154
-            var expandSize = Math.abs(extent[0]);
-            // In the fowllowing case
-            //      Axis has been fixed max 100
-            //      Plus data are all 100 and axis extent are [100, 100].
-            // Extend to the both side will cause expanded max is larger than fixed max.
-            // So only expand to the smaller side.
-            if (!opt.fixMax) {
-              extent[1] += expandSize / 2;
-              extent[0] -= expandSize / 2;
-            } else {
-              extent[0] -= expandSize / 2;
-            }
-          } else {
-            extent[1] = 1;
-          }
-        }
-        var span = extent[1] - extent[0];
-        // If there are no data and extent are [Infinity, -Infinity]
-        if (!isFinite(span)) {
-          extent[0] = 0;
-          extent[1] = 1;
-        }
-        this.calcNiceTicks(opt.splitNumber, opt.minInterval, opt.maxInterval);
-        // let extent = this._extent;
-        var interval = this._interval;
-        if (!opt.fixMin) {
-          extent[0] = roundNumber(Math.floor(extent[0] / interval) * interval);
-        }
-        if (!opt.fixMax) {
-          extent[1] = roundNumber(Math.ceil(extent[1] / interval) * interval);
-        }
-      };
-      IntervalScale.prototype.setNiceExtent = function (min, max) {
-        this._niceExtent = [min, max];
-      };
-      IntervalScale.type = 'interval';
-      return IntervalScale;
-    }(Scale);
-    Scale.registerClass(IntervalScale);
 
     /* global Float32Array */
     var supportFloat32Array = typeof Float32Array !== 'undefined';
@@ -31801,446 +32358,6 @@
       }
       return valueAxis.toGlobalCoord(valueAxis.dataToCoord(valueAxis.type === 'log' ? startValue > 0 ? startValue : 1 : startValue));
     }
-
-    // FIXME 公用？
-    var bisect = function (a, x, lo, hi) {
-      while (lo < hi) {
-        var mid = lo + hi >>> 1;
-        if (a[mid][1] < x) {
-          lo = mid + 1;
-        } else {
-          hi = mid;
-        }
-      }
-      return lo;
-    };
-    var TimeScale = /** @class */function (_super) {
-      __extends(TimeScale, _super);
-      function TimeScale(settings) {
-        var _this = _super.call(this, settings) || this;
-        _this.type = 'time';
-        return _this;
-      }
-      /**
-       * Get label is mainly for other components like dataZoom, tooltip.
-       */
-      TimeScale.prototype.getLabel = function (tick) {
-        var useUTC = this.getSetting('useUTC');
-        return format(tick.value, fullLeveledFormatter[getDefaultFormatPrecisionOfInterval(getPrimaryTimeUnit(this._minLevelUnit))] || fullLeveledFormatter.second, useUTC, this.getSetting('locale'));
-      };
-      TimeScale.prototype.getFormattedLabel = function (tick, idx, labelFormatter) {
-        var isUTC = this.getSetting('useUTC');
-        var lang = this.getSetting('locale');
-        return leveledFormat(tick, idx, labelFormatter, lang, isUTC);
-      };
-      /**
-       * @override
-       */
-      TimeScale.prototype.getTicks = function () {
-        var interval = this._interval;
-        var extent = this._extent;
-        var ticks = [];
-        // If interval is 0, return [];
-        if (!interval) {
-          return ticks;
-        }
-        ticks.push({
-          value: extent[0],
-          level: 0
-        });
-        var useUTC = this.getSetting('useUTC');
-        var innerTicks = getIntervalTicks(this._minLevelUnit, this._approxInterval, useUTC, extent);
-        ticks = ticks.concat(innerTicks);
-        ticks.push({
-          value: extent[1],
-          level: 0
-        });
-        return ticks;
-      };
-      TimeScale.prototype.calcNiceExtent = function (opt) {
-        var extent = this._extent;
-        // If extent start and end are same, expand them
-        if (extent[0] === extent[1]) {
-          // Expand extent
-          extent[0] -= ONE_DAY;
-          extent[1] += ONE_DAY;
-        }
-        // If there are no data and extent are [Infinity, -Infinity]
-        if (extent[1] === -Infinity && extent[0] === Infinity) {
-          var d = new Date();
-          extent[1] = +new Date(d.getFullYear(), d.getMonth(), d.getDate());
-          extent[0] = extent[1] - ONE_DAY;
-        }
-        this.calcNiceTicks(opt.splitNumber, opt.minInterval, opt.maxInterval);
-      };
-      TimeScale.prototype.calcNiceTicks = function (approxTickNum, minInterval, maxInterval) {
-        approxTickNum = approxTickNum || 10;
-        var extent = this._extent;
-        var span = extent[1] - extent[0];
-        this._approxInterval = span / approxTickNum;
-        if (minInterval != null && this._approxInterval < minInterval) {
-          this._approxInterval = minInterval;
-        }
-        if (maxInterval != null && this._approxInterval > maxInterval) {
-          this._approxInterval = maxInterval;
-        }
-        var scaleIntervalsLen = scaleIntervals.length;
-        var idx = Math.min(bisect(scaleIntervals, this._approxInterval, 0, scaleIntervalsLen), scaleIntervalsLen - 1);
-        // Interval that can be used to calculate ticks
-        this._interval = scaleIntervals[idx][1];
-        // Min level used when picking ticks from top down.
-        // We check one more level to avoid the ticks are to sparse in some case.
-        this._minLevelUnit = scaleIntervals[Math.max(idx - 1, 0)][0];
-      };
-      TimeScale.prototype.parse = function (val) {
-        // val might be float.
-        return isNumber(val) ? val : +parseDate(val);
-      };
-      TimeScale.prototype.contain = function (val) {
-        return contain$1(this.parse(val), this._extent);
-      };
-      TimeScale.prototype.normalize = function (val) {
-        return normalize$1(this.parse(val), this._extent);
-      };
-      TimeScale.prototype.scale = function (val) {
-        return scale$2(val, this._extent);
-      };
-      TimeScale.type = 'time';
-      return TimeScale;
-    }(IntervalScale);
-    /**
-     * This implementation was originally copied from "d3.js"
-     * <https://github.com/d3/d3/blob/b516d77fb8566b576088e73410437494717ada26/src/time/scale.js>
-     * with some modifications made for this program.
-     * See the license statement at the head of this file.
-     */
-    var scaleIntervals = [
-    // Format                           interval
-    ['second', ONE_SECOND], ['minute', ONE_MINUTE], ['hour', ONE_HOUR], ['quarter-day', ONE_HOUR * 6], ['half-day', ONE_HOUR * 12], ['day', ONE_DAY * 1.2], ['half-week', ONE_DAY * 3.5], ['week', ONE_DAY * 7], ['month', ONE_DAY * 31], ['quarter', ONE_DAY * 95], ['half-year', ONE_YEAR / 2], ['year', ONE_YEAR] // 1Y
-    ];
-    function isUnitValueSame(unit, valueA, valueB, isUTC) {
-      var dateA = parseDate(valueA);
-      var dateB = parseDate(valueB);
-      var isSame = function (unit) {
-        return getUnitValue(dateA, unit, isUTC) === getUnitValue(dateB, unit, isUTC);
-      };
-      var isSameYear = function () {
-        return isSame('year');
-      };
-      // const isSameHalfYear = () => isSameYear() && isSame('half-year');
-      // const isSameQuater = () => isSameYear() && isSame('quarter');
-      var isSameMonth = function () {
-        return isSameYear() && isSame('month');
-      };
-      var isSameDay = function () {
-        return isSameMonth() && isSame('day');
-      };
-      // const isSameHalfDay = () => isSameDay() && isSame('half-day');
-      var isSameHour = function () {
-        return isSameDay() && isSame('hour');
-      };
-      var isSameMinute = function () {
-        return isSameHour() && isSame('minute');
-      };
-      var isSameSecond = function () {
-        return isSameMinute() && isSame('second');
-      };
-      var isSameMilliSecond = function () {
-        return isSameSecond() && isSame('millisecond');
-      };
-      switch (unit) {
-        case 'year':
-          return isSameYear();
-        case 'month':
-          return isSameMonth();
-        case 'day':
-          return isSameDay();
-        case 'hour':
-          return isSameHour();
-        case 'minute':
-          return isSameMinute();
-        case 'second':
-          return isSameSecond();
-        case 'millisecond':
-          return isSameMilliSecond();
-      }
-    }
-    // const primaryUnitGetters = {
-    //     year: fullYearGetterName(),
-    //     month: monthGetterName(),
-    //     day: dateGetterName(),
-    //     hour: hoursGetterName(),
-    //     minute: minutesGetterName(),
-    //     second: secondsGetterName(),
-    //     millisecond: millisecondsGetterName()
-    // };
-    // const primaryUnitUTCGetters = {
-    //     year: fullYearGetterName(true),
-    //     month: monthGetterName(true),
-    //     day: dateGetterName(true),
-    //     hour: hoursGetterName(true),
-    //     minute: minutesGetterName(true),
-    //     second: secondsGetterName(true),
-    //     millisecond: millisecondsGetterName(true)
-    // };
-    // function moveTick(date: Date, unitName: TimeUnit, step: number, isUTC: boolean) {
-    //     step = step || 1;
-    //     switch (getPrimaryTimeUnit(unitName)) {
-    //         case 'year':
-    //             date[fullYearSetterName(isUTC)](date[fullYearGetterName(isUTC)]() + step);
-    //             break;
-    //         case 'month':
-    //             date[monthSetterName(isUTC)](date[monthGetterName(isUTC)]() + step);
-    //             break;
-    //         case 'day':
-    //             date[dateSetterName(isUTC)](date[dateGetterName(isUTC)]() + step);
-    //             break;
-    //         case 'hour':
-    //             date[hoursSetterName(isUTC)](date[hoursGetterName(isUTC)]() + step);
-    //             break;
-    //         case 'minute':
-    //             date[minutesSetterName(isUTC)](date[minutesGetterName(isUTC)]() + step);
-    //             break;
-    //         case 'second':
-    //             date[secondsSetterName(isUTC)](date[secondsGetterName(isUTC)]() + step);
-    //             break;
-    //         case 'millisecond':
-    //             date[millisecondsSetterName(isUTC)](date[millisecondsGetterName(isUTC)]() + step);
-    //             break;
-    //     }
-    //     return date.getTime();
-    // }
-    // const DATE_INTERVALS = [[8, 7.5], [4, 3.5], [2, 1.5]];
-    // const MONTH_INTERVALS = [[6, 5.5], [3, 2.5], [2, 1.5]];
-    // const MINUTES_SECONDS_INTERVALS = [[30, 30], [20, 20], [15, 15], [10, 10], [5, 5], [2, 2]];
-    function getDateInterval(approxInterval, daysInMonth) {
-      approxInterval /= ONE_DAY;
-      return approxInterval > 16 ? 16
-      // Math.floor(daysInMonth / 2) + 1  // In this case we only want one tick between two months.
-      : approxInterval > 7.5 ? 7 // TODO week 7 or day 8?
-      : approxInterval > 3.5 ? 4 : approxInterval > 1.5 ? 2 : 1;
-    }
-    function getMonthInterval(approxInterval) {
-      var APPROX_ONE_MONTH = 30 * ONE_DAY;
-      approxInterval /= APPROX_ONE_MONTH;
-      return approxInterval > 6 ? 6 : approxInterval > 3 ? 3 : approxInterval > 2 ? 2 : 1;
-    }
-    function getHourInterval(approxInterval) {
-      approxInterval /= ONE_HOUR;
-      return approxInterval > 12 ? 12 : approxInterval > 6 ? 6 : approxInterval > 3.5 ? 4 : approxInterval > 2 ? 2 : 1;
-    }
-    function getMinutesAndSecondsInterval(approxInterval, isMinutes) {
-      approxInterval /= isMinutes ? ONE_MINUTE : ONE_SECOND;
-      return approxInterval > 30 ? 30 : approxInterval > 20 ? 20 : approxInterval > 15 ? 15 : approxInterval > 10 ? 10 : approxInterval > 5 ? 5 : approxInterval > 2 ? 2 : 1;
-    }
-    function getMillisecondsInterval(approxInterval) {
-      return nice(approxInterval, true);
-    }
-    function getFirstTimestampOfUnit(date, unitName, isUTC) {
-      var outDate = new Date(date);
-      switch (getPrimaryTimeUnit(unitName)) {
-        case 'year':
-        case 'month':
-          outDate[monthSetterName(isUTC)](0);
-        case 'day':
-          outDate[dateSetterName(isUTC)](1);
-        case 'hour':
-          outDate[hoursSetterName(isUTC)](0);
-        case 'minute':
-          outDate[minutesSetterName(isUTC)](0);
-        case 'second':
-          outDate[secondsSetterName(isUTC)](0);
-          outDate[millisecondsSetterName(isUTC)](0);
-      }
-      return outDate.getTime();
-    }
-    function getIntervalTicks(bottomUnitName, approxInterval, isUTC, extent) {
-      var safeLimit = 10000;
-      var unitNames = timeUnits;
-      var iter = 0;
-      function addTicksInSpan(interval, minTimestamp, maxTimestamp, getMethodName, setMethodName, isDate, out) {
-        var date = new Date(minTimestamp);
-        var dateTime = minTimestamp;
-        var d = date[getMethodName]();
-        // if (isDate) {
-        //     d -= 1; // Starts with 0;   PENDING
-        // }
-        while (dateTime < maxTimestamp && dateTime <= extent[1]) {
-          out.push({
-            value: dateTime
-          });
-          d += interval;
-          date[setMethodName](d);
-          dateTime = date.getTime();
-        }
-        // This extra tick is for calcuating ticks of next level. Will not been added to the final result
-        out.push({
-          value: dateTime,
-          notAdd: true
-        });
-      }
-      function addLevelTicks(unitName, lastLevelTicks, levelTicks) {
-        var newAddedTicks = [];
-        var isFirstLevel = !lastLevelTicks.length;
-        if (isUnitValueSame(getPrimaryTimeUnit(unitName), extent[0], extent[1], isUTC)) {
-          return;
-        }
-        if (isFirstLevel) {
-          lastLevelTicks = [{
-            // TODO Optimize. Not include so may ticks.
-            value: getFirstTimestampOfUnit(new Date(extent[0]), unitName, isUTC)
-          }, {
-            value: extent[1]
-          }];
-        }
-        for (var i = 0; i < lastLevelTicks.length - 1; i++) {
-          var startTick = lastLevelTicks[i].value;
-          var endTick = lastLevelTicks[i + 1].value;
-          if (startTick === endTick) {
-            continue;
-          }
-          var interval = void 0;
-          var getterName = void 0;
-          var setterName = void 0;
-          var isDate = false;
-          switch (unitName) {
-            case 'year':
-              interval = Math.max(1, Math.round(approxInterval / ONE_DAY / 365));
-              getterName = fullYearGetterName(isUTC);
-              setterName = fullYearSetterName(isUTC);
-              break;
-            case 'half-year':
-            case 'quarter':
-            case 'month':
-              interval = getMonthInterval(approxInterval);
-              getterName = monthGetterName(isUTC);
-              setterName = monthSetterName(isUTC);
-              break;
-            case 'week': // PENDING If week is added. Ignore day.
-            case 'half-week':
-            case 'day':
-              interval = getDateInterval(approxInterval); // Use 32 days and let interval been 16
-              getterName = dateGetterName(isUTC);
-              setterName = dateSetterName(isUTC);
-              isDate = true;
-              break;
-            case 'half-day':
-            case 'quarter-day':
-            case 'hour':
-              interval = getHourInterval(approxInterval);
-              getterName = hoursGetterName(isUTC);
-              setterName = hoursSetterName(isUTC);
-              break;
-            case 'minute':
-              interval = getMinutesAndSecondsInterval(approxInterval, true);
-              getterName = minutesGetterName(isUTC);
-              setterName = minutesSetterName(isUTC);
-              break;
-            case 'second':
-              interval = getMinutesAndSecondsInterval(approxInterval, false);
-              getterName = secondsGetterName(isUTC);
-              setterName = secondsSetterName(isUTC);
-              break;
-            case 'millisecond':
-              interval = getMillisecondsInterval(approxInterval);
-              getterName = millisecondsGetterName(isUTC);
-              setterName = millisecondsSetterName(isUTC);
-              break;
-          }
-          addTicksInSpan(interval, startTick, endTick, getterName, setterName, isDate, newAddedTicks);
-          if (unitName === 'year' && levelTicks.length > 1 && i === 0) {
-            // Add nearest years to the left extent.
-            levelTicks.unshift({
-              value: levelTicks[0].value - interval
-            });
-          }
-        }
-        for (var i = 0; i < newAddedTicks.length; i++) {
-          levelTicks.push(newAddedTicks[i]);
-        }
-        // newAddedTicks.length && console.log(unitName, newAddedTicks);
-        return newAddedTicks;
-      }
-      var levelsTicks = [];
-      var currentLevelTicks = [];
-      var tickCount = 0;
-      var lastLevelTickCount = 0;
-      for (var i = 0; i < unitNames.length && iter++ < safeLimit; ++i) {
-        var primaryTimeUnit = getPrimaryTimeUnit(unitNames[i]);
-        if (!isPrimaryTimeUnit(unitNames[i])) {
-          // TODO
-          continue;
-        }
-        addLevelTicks(unitNames[i], levelsTicks[levelsTicks.length - 1] || [], currentLevelTicks);
-        var nextPrimaryTimeUnit = unitNames[i + 1] ? getPrimaryTimeUnit(unitNames[i + 1]) : null;
-        if (primaryTimeUnit !== nextPrimaryTimeUnit) {
-          if (currentLevelTicks.length) {
-            lastLevelTickCount = tickCount;
-            // Remove the duplicate so the tick count can be precisely.
-            currentLevelTicks.sort(function (a, b) {
-              return a.value - b.value;
-            });
-            var levelTicksRemoveDuplicated = [];
-            for (var i_1 = 0; i_1 < currentLevelTicks.length; ++i_1) {
-              var tickValue = currentLevelTicks[i_1].value;
-              if (i_1 === 0 || currentLevelTicks[i_1 - 1].value !== tickValue) {
-                levelTicksRemoveDuplicated.push(currentLevelTicks[i_1]);
-                if (tickValue >= extent[0] && tickValue <= extent[1]) {
-                  tickCount++;
-                }
-              }
-            }
-            var targetTickNum = (extent[1] - extent[0]) / approxInterval;
-            // Added too much in this level and not too less in last level
-            if (tickCount > targetTickNum * 1.5 && lastLevelTickCount > targetTickNum / 1.5) {
-              break;
-            }
-            // Only treat primary time unit as one level.
-            levelsTicks.push(levelTicksRemoveDuplicated);
-            if (tickCount > targetTickNum || bottomUnitName === unitNames[i]) {
-              break;
-            }
-          }
-          // Reset if next unitName is primary
-          currentLevelTicks = [];
-        }
-      }
-      if ("development" !== 'production') {
-        if (iter >= safeLimit) {
-          warn('Exceed safe limit.');
-        }
-      }
-      var levelsTicksInExtent = filter(map(levelsTicks, function (levelTicks) {
-        return filter(levelTicks, function (tick) {
-          return tick.value >= extent[0] && tick.value <= extent[1] && !tick.notAdd;
-        });
-      }), function (levelTicks) {
-        return levelTicks.length > 0;
-      });
-      var ticks = [];
-      var maxLevel = levelsTicksInExtent.length - 1;
-      for (var i = 0; i < levelsTicksInExtent.length; ++i) {
-        var levelTicks = levelsTicksInExtent[i];
-        for (var k = 0; k < levelTicks.length; ++k) {
-          ticks.push({
-            value: levelTicks[k].value,
-            level: maxLevel - i
-          });
-        }
-      }
-      ticks.sort(function (a, b) {
-        return a.value - b.value;
-      });
-      // Remove duplicates
-      var result = [];
-      for (var i = 0; i < ticks.length; ++i) {
-        if (i === 0 || ticks[i].value !== ticks[i - 1].value) {
-          result.push(ticks[i]);
-        }
-      }
-      return result;
-    }
-    Scale.registerClass(TimeScale);
 
     var scaleProto = Scale.prototype;
     // FIXME:TS refactor: not good to call it directly with `this`?
@@ -41583,8 +41700,8 @@
                 var actualStartAngle = 0;
                 var actualEndAngle = 0;
                 if (angle_1 < padAngle) {
-                  actualStartAngle = startAngle + dir * (idx + 1 / 2) * angle_1;
-                  actualEndAngle = actualStartAngle;
+                  actualStartAngle = startAngle + dir * idx * angle_1 + halfPadAngle;
+                  actualEndAngle = startAngle + dir * (idx + 1) * angle_1 - halfPadAngle;
                 } else {
                   actualStartAngle = startAngle + dir * idx * angle_1 + halfPadAngle;
                   actualEndAngle = startAngle + dir * (idx + 1) * angle_1 - halfPadAngle;
@@ -41910,7 +42027,10 @@
       return sectorShape.position === 'center';
     }
     function pieLabelLayout(seriesModel) {
+      var _a, _b, _c, _d;
       var data = seriesModel.getData();
+      var showLabelsProp = (_b = (_a = seriesModel.get('label')) === null || _a === void 0 ? void 0 : _a.show) !== null && _b !== void 0 ? _b : true;
+      var showLabelsLineProp = (_d = (_c = seriesModel.get('labelLine')) === null || _c === void 0 ? void 0 : _c.show) !== null && _d !== void 0 ? _d : false;
       var labelLayoutList = [];
       var cx;
       var cy;
@@ -41924,6 +42044,9 @@
       var viewHeight = viewRect.height;
       function setNotShow(el) {
         el.ignore = true;
+      }
+      function setShow(el) {
+        el.ignore = false;
       }
       function isLabelShown(label) {
         if (!label.ignore) {
@@ -41954,14 +42077,12 @@
         labelLineLen = parsePercent$1(labelLineLen, viewWidth);
         var labelLineLen2 = labelLineModel.get('length2');
         labelLineLen2 = parsePercent$1(labelLineLen2, viewWidth);
-        if (Math.abs(sectorShape.endAngle - sectorShape.startAngle) < minShowLabelRadian) {
-          each(label.states, setNotShow);
-          label.ignore = true;
-          if (labelLine) {
-            each(labelLine.states, setNotShow);
-            labelLine.ignore = true;
-          }
-          return;
+        var isLabelHidden = Math.abs(sectorShape.endAngle - sectorShape.startAngle) < minShowLabelRadian || !showLabelsProp;
+        each(label.states, isLabelHidden ? setNotShow : setShow);
+        label.ignore = isLabelHidden;
+        if (labelLine) {
+          each(labelLine.states, isLabelHidden || !showLabelsLineProp ? setNotShow : setShow);
+          labelLine.ignore = isLabelHidden || !showLabelsLineProp;
         }
         if (!isLabelShown(label)) {
           return;
@@ -42113,6 +42234,30 @@
       }
     }
 
+    function parsePosition(seriesModel, api) {
+      var _a = seriesModel === null || seriesModel === void 0 ? void 0 : seriesModel.option,
+        top = _a.top,
+        right = _a.right,
+        bottom = _a.bottom,
+        left = _a.left;
+      var center = seriesModel.get('center'); // !TODO: we don't have cases without arrays but...
+      var radius = seriesModel.get('radius'); // !TODO: we don't have cases without arrays but...
+      var width = api.getWidth();
+      var height = api.getHeight();
+      var size = Math.min(width, height);
+      var cx = parsePercent$1(center[0], width);
+      var cy = parsePercent$1(center[1], height);
+      var r = parsePercent$1(radius[0], size / 2);
+      var offsetX = (+left - +right) / 2;
+      var offsetY = (+top - +bottom) / 2;
+      return {
+        cx: cx,
+        cy: cy,
+        r: r,
+        offsetX: offsetX,
+        offsetY: offsetY
+      };
+    }
     /**
      * Piece of pie including Sector, Label, LabelLine
      */
@@ -42326,6 +42471,7 @@
         if (seriesModel.get('animationTypeUpdate') !== 'expansion') {
           this._data = data;
         }
+        this._renderTitle(seriesModel, ecModel, api);
       };
       PieView.prototype.dispose = function () {};
       PieView.prototype.containPoint = function (point, seriesModel) {
@@ -42337,6 +42483,47 @@
           var radius = Math.sqrt(dx * dx + dy * dy);
           return radius <= itemLayout.r && radius >= itemLayout.r0;
         }
+      };
+      PieView.prototype._renderTitle = function (seriesModel, ecModel, api) {
+        var _a, _b, _c, _d, _e;
+        var title = seriesModel === null || seriesModel === void 0 ? void 0 : seriesModel.option.title;
+        if (!title) {
+          if (this._titleEls) {
+            this.group.remove(this._titleEls[0]);
+            this._titleEls = null;
+          }
+          return;
+        }
+        var posInfo = parsePosition(seriesModel, api);
+        var data = seriesModel.getData();
+        var valueDim = data.mapDimension('value');
+        var titleStr = title.str;
+        if (title.isSum) {
+          var sumVal = data.getSum(valueDim);
+          titleStr += (title === null || title === void 0 ? void 0 : title.formatter) ? title.formatter(sumVal) : "" + sumVal;
+        }
+        var newTitleEls = this._titleEls || [new ZRText({
+          silent: true
+        })];
+        var itemModel = data.getItemModel(0);
+        var titleX = posInfo.cx + posInfo.offsetX + parsePercent$1((_b = (_a = title.offset) === null || _a === void 0 ? void 0 : _a[0]) !== null && _b !== void 0 ? _b : 0, posInfo.r);
+        var titleY = posInfo.cy + posInfo.offsetY + parsePercent$1((_d = (_c = title.offset) === null || _c === void 0 ? void 0 : _c[1]) !== null && _d !== void 0 ? _d : 0, posInfo.r);
+        var labelEl = newTitleEls[0];
+        labelEl.attr({
+          z2: 2,
+          style: createTextStyle(itemModel, __assign({
+            x: titleX,
+            y: titleY,
+            text: titleStr,
+            align: 'center',
+            verticalAlign: 'middle',
+            fill: ((_e = title === null || title === void 0 ? void 0 : title.style) === null || _e === void 0 ? void 0 : _e.color) || '#000000',
+            fontWeight: 600,
+            overflow: 'break'
+          }, title.style), {})
+        });
+        this.group.add(labelEl);
+        this._titleEls = newTitleEls;
       };
       PieView.type = 'pie';
       return PieView;
@@ -42541,6 +42728,7 @@
         bottom: 0,
         width: null,
         height: null,
+        title: undefined,
         label: {
           // color: 'inherit',
           // If rotate around circle
@@ -56330,7 +56518,7 @@
       return PointerPath;
     }(Path);
 
-    function parsePosition(seriesModel, api) {
+    function parsePosition$1(seriesModel, api) {
       var center = seriesModel.get('center');
       var width = api.getWidth();
       var height = api.getHeight();
@@ -56365,7 +56553,7 @@
       GaugeView.prototype.render = function (seriesModel, ecModel, api) {
         this.group.removeAll();
         var colorList = seriesModel.get(['axisLine', 'lineStyle', 'color']);
-        var posInfo = parsePosition(seriesModel, api);
+        var posInfo = parsePosition$1(seriesModel, api);
         this._renderMain(seriesModel, ecModel, api, colorList, posInfo);
         this._data = seriesModel.getData();
       };
@@ -56842,6 +57030,12 @@
         _this.visualStyleAccessPath = 'itemStyle';
         return _this;
       }
+      GaugeSeriesModel.prototype.init = function (option) {
+        _super.prototype.init.apply(this, arguments);
+        // Enable legend selection for each data item
+        // Use a function instead of direct access because data reference may changed
+        this.legendVisualProvider = new LegendVisualProvider(bind(this.getData, this), bind(this.getRawData, this));
+      };
       GaugeSeriesModel.prototype.getInitialData = function (option, ecModel) {
         return createSeriesDataSimply(this, ['value']);
       };
@@ -56976,6 +57170,7 @@
     function install$e(registers) {
       registers.registerChartView(GaugeView);
       registers.registerSeriesModel(GaugeSeriesModel);
+      registers.registerProcessor(dataFilter('gauge'));
     }
 
     var opacityAccessPath = ['itemStyle', 'opacity'];
@@ -72038,6 +72233,14 @@
         // ) {
         //     filterMode = 'empty';
         // }
+        // TODO: remove this after fix stacked bar chart and enabled zoom
+        var stacked = seriesModels.some(function (model) {
+          var stackModel = model;
+          return Boolean(stackModel.get('stack'));
+        });
+        if (stacked && filterMode === 'filter') {
+          filterMode = 'empty';
+        }
         // TODO
         // filterMode 'weakFilter' and 'empty' is not optimized for huge data yet.
         each$8(seriesModels, function (seriesModel) {
@@ -73828,7 +74031,16 @@
         });
       },
       back: function () {
-        this._dispatchZoomAction(pop(this.ecModel));
+        var _a;
+        var zoomState = pop(this.ecModel);
+        // Trying to roll back may return an "empty" snapshot,
+        // if there are no more entries in the history for the current dataZoom.
+        // In this case, we do an additional pop() to move to the state of the next dataZoom.
+        // This is necessary to avoid unnecessary manual "Back" clicks by the user.
+        if (!((_a = Object.keys(zoomState)) === null || _a === void 0 ? void 0 : _a.length) && count(this.ecModel) > 1) {
+          zoomState = pop(this.ecModel);
+        }
+        this._dispatchZoomAction(zoomState);
       }
     };
     function makeAxisFinder(dzFeatureModel) {
@@ -79066,10 +79278,30 @@
         return itemGroup;
       };
       LegendView.prototype.layoutInner = function (legendModel, itemAlign, maxSize, isFirstRender, selector, selectorPosition) {
+        var _a, _b, _c;
         var contentGroup = this.getContentGroup();
         var selectorGroup = this.getSelectorGroup();
+        var selectorRect = selectorGroup.getBoundingRect();
+        var margin = maxSize.margin || [0, 0, 0, 0];
+        var selectorButtonGap = 0;
+        var seletorMaxWidth = 0;
+        var selectorLength = 0;
+        var gapLength = 0;
+        if (selector) {
+          selectorButtonGap = legendModel.get('selectorButtonGap', true);
+          // @ts-ignore
+          selectorLength = (_b = (_a = selectorGroup === null || selectorGroup === void 0 ? void 0 : selectorGroup._children) === null || _a === void 0 ? void 0 : _a.length) !== null && _b !== void 0 ? _b : 0;
+          gapLength = selectorLength > 0 ? selectorLength - 1 : 0;
+          // @ts-ignore
+          seletorMaxWidth = ((_c = selectorGroup === null || selectorGroup === void 0 ? void 0 : selectorGroup._children) === null || _c === void 0 ? void 0 : _c.reduce(function (acc, val) {
+            var _a, _b;
+            return acc + ((_b = (_a = val === null || val === void 0 ? void 0 : val._rect) === null || _a === void 0 ? void 0 : _a.width) !== null && _b !== void 0 ? _b : 0);
+          }, 0)) + selectorButtonGap * gapLength; // eslint-disable-line
+          selectorRect.width = seletorMaxWidth;
+        }
+        var contentMaxWidth = maxSize.width - seletorMaxWidth - margin[1] - margin[3];
         // Place items in contentGroup.
-        box(legendModel.get('orient'), contentGroup, legendModel.get('itemGap'), maxSize.width, maxSize.height);
+        box(legendModel.get('orient'), contentGroup, legendModel.get('itemGap'), contentMaxWidth, maxSize.height);
         var contentRect = contentGroup.getBoundingRect();
         var contentPos = [-contentRect.x, -contentRect.y];
         selectorGroup.markRedraw();
@@ -79079,17 +79311,16 @@
           box(
           // Buttons in selectorGroup always layout horizontally
           'horizontal', selectorGroup, legendModel.get('selectorItemGap', true));
-          var selectorRect = selectorGroup.getBoundingRect();
           var selectorPos = [-selectorRect.x, -selectorRect.y];
-          var selectorButtonGap = legendModel.get('selectorButtonGap', true);
           var orientIdx = legendModel.getOrient().index;
           var wh = orientIdx === 0 ? 'width' : 'height';
           var hw = orientIdx === 0 ? 'height' : 'width';
           var yx = orientIdx === 0 ? 'y' : 'x';
+          var marginHW = orientIdx === 0 ? 3 : 0;
           if (selectorPosition === 'end') {
-            selectorPos[orientIdx] += contentRect[wh] + selectorButtonGap;
+            selectorPos[orientIdx] += contentRect[wh] + selectorButtonGap + margin[marginHW];
           } else {
-            contentPos[orientIdx] += selectorRect[wh] + selectorButtonGap;
+            contentPos[orientIdx] += selectorRect[wh] + selectorButtonGap + margin[marginHW];
           }
           // Always align selector to content as 'middle'
           selectorPos[1 - orientIdx] += contentRect[hw] / 2 - selectorRect[hw] / 2;
@@ -79531,6 +79762,7 @@
        */
       ScrollableLegendView.prototype.layoutInner = function (legendModel, itemAlign, maxSize, isFirstRender, selector, selectorPosition) {
         var selectorGroup = this.getSelectorGroup();
+        var margin = maxSize.margin || [0, 0, 0, 0];
         var orientIdx = legendModel.getOrient().index;
         var wh = WH$1[orientIdx];
         var xy = XY$1[orientIdx];
@@ -79547,9 +79779,9 @@
         var mainRect = this._layoutContentAndController(legendModel, isFirstRender, processMaxSize, orientIdx, wh, hw, yx, xy);
         if (selector) {
           if (selectorPosition === 'end') {
-            selectorPos[orientIdx] += mainRect[wh] + selectorButtonGap;
+            selectorPos[orientIdx] += mainRect[wh] + selectorButtonGap - margin[3];
           } else {
-            var offset = selectorRect[wh] + selectorButtonGap;
+            var offset = selectorRect[wh] + selectorButtonGap - margin[3];
             selectorPos[orientIdx] -= offset;
             mainRect[xy] -= offset;
           }
@@ -80334,6 +80566,8 @@
         var _this = _super !== null && _super.apply(this, arguments) || this;
         _this.type = SliderZoomView.type;
         _this._displayables = {};
+        _this._dragInitialSaved = false;
+        _this._lastSavedRange = null;
         return _this;
       }
       SliderZoomView.prototype.init = function (ecModel, api) {
@@ -80929,6 +81163,12 @@
         displayables.moveHandle && this.api[toShow ? 'enterEmphasis' : 'leaveEmphasis'](displayables.moveHandle, 1);
       };
       SliderZoomView.prototype._onDragMove = function (handleIndex, dx, dy, event) {
+        // Save init state for first drag move
+        if (!this._dragInitialSaved) {
+          var originRange = this.dataZoomModel.getPercentRange();
+          this._pushSnapshotIfChanged(originRange);
+          this._dragInitialSaved = true;
+        }
         this._dragging = true;
         // For mobile device, prevent screen slider on the button.
         stop(event.event);
@@ -80938,17 +81178,17 @@
         var changed = this._updateInterval(handleIndex, vertex[0]);
         var realtime = this.dataZoomModel.get('realtime');
         this._updateView(!realtime);
-        // Avoid dispatch dataZoom repeatly but range not changed,
-        // which cause bad visual effect when progressive enabled.
-        changed && realtime && this._dispatchZoomAction(true);
+        if (changed) {
+          this._dispatchZoomAction(realtime);
+        }
       };
       SliderZoomView.prototype._onDragEnd = function () {
         this._dragging = false;
         this._showDataInfo(false);
-        // While in realtime mode and stream mode, dispatch action when
-        // drag end will cause the whole view rerender, which is unnecessary.
-        var realtime = this.dataZoomModel.get('realtime');
-        !realtime && this._dispatchZoomAction(false);
+        // Always dispatch action for history usage
+        this._pushSnapshotIfChanged(this._range);
+        this._dragInitialSaved = false;
+        this._dispatchZoomAction(false);
       };
       SliderZoomView.prototype._onClickPanel = function (e) {
         var size = this._size;
@@ -80960,9 +81200,19 @@
         var center = (handleEnds[0] + handleEnds[1]) / 2;
         var changed = this._updateInterval('all', localPoint[0] - center);
         this._updateView();
-        changed && this._dispatchZoomAction(false);
+        if (changed) {
+          // Save state for click action for history
+          var range = this._range;
+          this._pushSnapshotIfChanged(range);
+          this._dispatchZoomAction(false);
+        }
       };
       SliderZoomView.prototype._onBrushStart = function (e) {
+        // Save init state for brash
+        if (!this._brushing) {
+          var originRange = this.dataZoomModel.getPercentRange();
+          this._pushSnapshotIfChanged(originRange);
+        }
         var x = e.offsetX;
         var y = e.offsetY;
         this._brushStart = new Point(x, y);
@@ -80992,6 +81242,8 @@
         this._range = asc([linearMap(brushShape.x, viewExtend, percentExtent, true), linearMap(brushShape.x + brushShape.width, viewExtend, percentExtent, true)]);
         this._handleEnds = [brushShape.x, brushShape.x + brushShape.width];
         this._updateView();
+        // save in history brush changes
+        this._pushSnapshotIfChanged(this._range);
         this._dispatchZoomAction(false);
       };
       SliderZoomView.prototype._onBrush = function (e) {
@@ -81031,13 +81283,16 @@
        */
       SliderZoomView.prototype._dispatchZoomAction = function (realtime) {
         var range = this._range;
+        var batchItem = {
+          dataZoomId: this.dataZoomModel.id,
+          start: range[0],
+          end: range[1]
+        };
         this.api.dispatchAction({
           type: 'dataZoom',
           from: this.uid,
-          dataZoomId: this.dataZoomModel.id,
-          animation: realtime ? REALTIME_ANIMATION_CONFIG : null,
-          start: range[0],
-          end: range[1]
+          batch: [batchItem],
+          animation: realtime ? REALTIME_ANIMATION_CONFIG : null
         });
       };
       SliderZoomView.prototype._findCoordRect = function () {
@@ -81059,6 +81314,21 @@
           };
         }
         return rect;
+      };
+      /**
+       * Save snapshot if range is changed relative to the previous saved range
+       */
+      SliderZoomView.prototype._pushSnapshotIfChanged = function (range) {
+        if (!this._lastSavedRange || this._lastSavedRange[0] !== range[0] || this._lastSavedRange[1] !== range[1]) {
+          var snapshot = {};
+          snapshot[this.dataZoomModel.id] = {
+            dataZoomId: this.dataZoomModel.id,
+            start: range[0],
+            end: range[1]
+          };
+          push(this.ecModel, snapshot);
+          this._lastSavedRange = range.slice();
+        }
       };
       SliderZoomView.type = 'dataZoom.slider';
       return SliderZoomView;

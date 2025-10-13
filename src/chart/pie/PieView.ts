@@ -29,13 +29,12 @@ import { Payload, ColorString } from '../../util/types';
 import SeriesData from '../../data/SeriesData';
 import PieSeriesModel, { PieDataItemOption } from './PieSeries';
 import labelLayout from './labelLayout';
+import { parsePercent } from '../../util/number';
 import { setLabelLineStyle, getLabelLineStatesModels } from '../../label/labelGuideHelper';
 import { setLabelStyle, getLabelStatesModels, createTextStyle } from '../../label/labelStyle';
-import { getSectorCornerRadius } from '../helper/pieHelper';
+import { getSectorCornerRadius } from '../helper/sectorHelper';
 import { saveOldStyle } from '../../animation/basicTransition';
 import { getBasicPieLayout, getSeriesLayoutData } from './pieLayout';
-import { parsePercent } from '../../util/number';
-
 
 interface PosInfo {
     cx: number;
