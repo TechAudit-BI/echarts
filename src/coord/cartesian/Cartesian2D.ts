@@ -88,9 +88,35 @@ class Cartesian2D extends Cartesian<Axis2D> implements CoordinateSystem {
      * Base axis will be used on stacking.
      */
     getBaseAxis(): Axis2D {
-        return this.getAxesByScale('ordinal')[0]
-            || this.getAxesByScale('time')[0]
-            || this.getAxis('x');
+        const xAxis = this.getAxis('x');
+        const yAxis = this.getAxis('y');
+
+        // Prefer ordinal axis, then time axis
+        const ordinalAxis = this.getAxesByScale('ordinal')[0];
+        if (ordinalAxis) {
+            return ordinalAxis;
+        }
+        const timeAxis = this.getAxesByScale('time')[0];
+        if (timeAxis) {
+            return timeAxis;
+        }
+
+        // In bar chart we might have 2 axes with type === 'value' so we look for a prop to decide if there is a correct one.
+        if (
+            xAxis?.model?.option &&
+            (xAxis.model.option as any)?.isMainAxis
+        ) {
+            return xAxis;
+        }
+        if (
+            yAxis?.model?.option &&
+            (yAxis.model.option as any)?.isMainAxis
+        ) {
+            return yAxis;
+        }
+
+        // Fallback to x axis
+        return xAxis;
     }
 
     containPoint(point: number[]): boolean {
