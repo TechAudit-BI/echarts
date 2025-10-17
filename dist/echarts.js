@@ -35588,9 +35588,7 @@
 
       var ecModel = model.ecModel;
 
-      if (ecModel && scaleType === 'time'
-      /* || scaleType === 'interval' */
-      ) {
+      if (ecModel && (scaleType === 'time' || scaleType === 'interval')) {
         var barSeriesModels = prepareLayoutBarSeries('bar', ecModel);
         var isBaseAxisAndHasBarSeries_1 = false;
         each(barSeriesModels, function (seriesModel) {
