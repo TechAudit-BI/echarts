@@ -32368,7 +32368,7 @@
       // (4) Consider other chart types using `barGrid`?
       // See #6728, #4862, `test/bar-overflow-time-plot.html`
       var ecModel = model.ecModel;
-      if (ecModel && scaleType === 'time' /* || scaleType === 'interval' */) {
+      if (ecModel && (scaleType === 'time' || scaleType === 'interval')) {
         var barSeriesModels = prepareLayoutBarSeries('bar', ecModel);
         var isBaseAxisAndHasBarSeries_1 = false;
         each(barSeriesModels, function (seriesModel) {
@@ -42626,7 +42626,27 @@
        * Base axis will be used on stacking.
        */
       Cartesian2D.prototype.getBaseAxis = function () {
-        return this.getAxesByScale('ordinal')[0] || this.getAxesByScale('time')[0] || this.getAxis('x');
+        var _a, _b, _c, _d;
+        var xAxis = this.getAxis('x');
+        var yAxis = this.getAxis('y');
+        // Prefer ordinal axis, then time axis
+        var ordinalAxis = this.getAxesByScale('ordinal')[0];
+        if (ordinalAxis) {
+          return ordinalAxis;
+        }
+        var timeAxis = this.getAxesByScale('time')[0];
+        if (timeAxis) {
+          return timeAxis;
+        }
+        // In bar chart we might have 2 axes with type === 'value' so we look for a prop to decide if there is a correct one.
+        if (((_a = xAxis === null || xAxis === void 0 ? void 0 : xAxis.model) === null || _a === void 0 ? void 0 : _a.option) && ((_b = xAxis.model.option) === null || _b === void 0 ? void 0 : _b.isMainAxis)) {
+          return xAxis;
+        }
+        if (((_c = yAxis === null || yAxis === void 0 ? void 0 : yAxis.model) === null || _c === void 0 ? void 0 : _c.option) && ((_d = yAxis.model.option) === null || _d === void 0 ? void 0 : _d.isMainAxis)) {
+          return yAxis;
+        }
+        // Fallback to x axis
+        return xAxis;
       };
       Cartesian2D.prototype.containPoint = function (point) {
         var axisX = this.getAxis('x');
