@@ -103,14 +103,14 @@ class Cartesian2D extends Cartesian<Axis2D> implements CoordinateSystem {
 
         // In bar chart we might have 2 axes with type === 'value' so we look for a prop to decide if there is a correct one.
         if (
-            xAxis?.model?.option &&
-            (xAxis.model.option as any)?.isMainAxis
+            xAxis?.model?.option 
+            && (xAxis.model.option as any)?.isMainAxis
         ) {
             return xAxis;
         }
         if (
-            yAxis?.model?.option &&
-            (yAxis.model.option as any)?.isMainAxis
+            yAxis?.model?.option 
+            && (yAxis.model.option as any)?.isMainAxis
         ) {
             return yAxis;
         }
